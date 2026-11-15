@@ -219,8 +219,16 @@ class PlatformRasp(PlatformBase):
             shell=True,
         )
         call("sudo git clean -fdx Songs/cache", shell=True)
-        call("sudo git pull origin master", shell=True)
+        # Follow the branch this install is on (a fork, for instance); installs that
+        # track nothing keep pulling the original master
+        tracks_branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            capture_output=True, check=False,
+        ).returncode == 0
+        call("sudo git pull" if tracks_branch else "sudo git pull origin master", shell=True)
         PlatformRasp._install_requirements(project_root, use_venv)
+        # The new code only runs once the service is restarted
+        PlatformRasp.restart_visualizer()
 
     @staticmethod
     def shutdown():
