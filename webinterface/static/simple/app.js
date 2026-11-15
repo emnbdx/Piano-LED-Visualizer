@@ -672,6 +672,7 @@
         const whiteWidth = rollSize.width / notes.filter(note => !BLACK_SEMITONES.has(note % 12)).length;
         const blackWidth = whiteWidth * 0.62;
         keys = [];
+        keyLabels = null;
         let whiteIndex = 0;
         for (const note of notes) {
             if (BLACK_SEMITONES.has(note % 12)) {
@@ -683,7 +684,25 @@
         }
     }
 
-    const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    // French uses solfège names, and counts octaves one lower (middle C is C4 but Do3)
+    const SOLFEGE = simpleLanguage() === "fr";
+    const NOTE_NAMES = SOLFEGE
+        ? ["Do", "Do#", "Ré", "Ré#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si"]
+        : ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const octaveOf = note => Math.floor(note / 12) - (SOLFEGE ? 2 : 1);
+    const NOTE_FONT = "700 10px system-ui, sans-serif";
+    const KEY_FONT = "600 9px system-ui, sans-serif";
+    let nameWidths = null;  // width of each note name in NOTE_FONT, measured once
+    let keyLabels = null;   // label of each key, recomputed when the keyboard is laid out
+
+    // Only the Cs carry their octave ("Do3"); the other keys are named when there is room
+    function keyLabel(note, width) {
+        const name = NOTE_NAMES[note % 12];
+        const fits = (text, room) => context.measureText(text).width <= room;
+        if (note % 12 === 0 && fits(name + octaveOf(note), width + 4)) return name + octaveOf(note);
+        return fits(name, width - 3) ? name : "";
+    }
+
     const WRONG_KEY = "#ef6b5a";
     const FREE_KEY = "#f2b544";
 
@@ -721,7 +740,8 @@
         }
 
         // Falling notes
-        context.font = "700 10px system-ui, sans-serif";
+        context.font = NOTE_FONT;
+        nameWidths = nameWidths || NOTE_NAMES.map(name => context.measureText(name).width);
         for (const [note, start, duration, hand] of state.notes) {
             if (start > position + SECONDS_VISIBLE) break;
             const end = start + duration;
@@ -745,7 +765,7 @@
             context.roundRect(x, top, noteWidth, noteHeight, Math.min(5, noteWidth / 2));
             context.fill();
 
-            if (noteWidth >= 11 && noteHeight >= 16) {
+            if (nameWidths[note % 12] <= noteWidth + 3 && noteHeight >= 16) {
                 context.fillStyle = key.black ? "rgba(255, 255, 255, 0.9)" : "rgba(8, 10, 14, 0.72)";
                 context.fillText(NOTE_NAMES[note % 12], x + noteWidth / 2, top + noteHeight - 5);
             }
@@ -772,7 +792,6 @@
             return expected ? expected.base : idle;
         };
         const blackHeight = keyboard * 0.62;
-        const whiteWidth = keys.find(key => key && !key.black).width;
 
         context.fillStyle = "#08090c";
         context.fillRect(0, lane, width, keyboard);
@@ -784,11 +803,11 @@
             context.fill();
         });
         // Key names: every white key when there is room, otherwise only the Cs
-        context.font = "600 9px system-ui, sans-serif";
+        context.font = KEY_FONT;
         context.fillStyle = "rgba(20, 22, 28, 0.45)";
+        keyLabels = keyLabels || keys.map((key, note) => (key.black ? "" : keyLabel(note, key.width)));
         keys.forEach((key, note) => {
-            if (key.black || (whiteWidth < 17 && note % 12 !== 0) || whiteWidth < 11) return;
-            context.fillText(NOTE_NAMES[note % 12] + (Math.floor(note / 12) - 1), key.x + key.width / 2, lane + keyboard - 8);
+            if (keyLabels[note]) context.fillText(keyLabels[note], key.x + key.width / 2, lane + keyboard - 8);
         });
         keys.forEach((key, note) => {
             if (!key.black) return;
