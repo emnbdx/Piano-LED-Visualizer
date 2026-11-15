@@ -4,6 +4,13 @@
 # For Raspberry Pi OS Trixie (Debian 13), use autoinstall.sh instead.
 #
 
+# Repository and branch to install. The update button of the web interface follows the
+# same branch afterwards. To install something else, pass the variables through sudo:
+#   sudo env PLV_BRANCH=master bash -c "$(curl -fsSL ...)"
+PLV_REPO="${PLV_REPO:-https://github.com/emnbdx/Piano-LED-Visualizer}"
+PLV_BRANCH="${PLV_BRANCH:-claude/nifty-fermat-o9m74j}"
+PLV_RAW="${PLV_REPO/github.com/raw.githubusercontent.com}/${PLV_BRANCH}"
+
 # Function to display error message and exit
 display_error() {
   echo "Error: $1" >&2
@@ -17,7 +24,7 @@ refuse_if_trixie() {
     if [ "${VERSION_CODENAME:-}" = "trixie" ]; then
       echo "Error: This script is for Raspberry Pi OS Bookworm." >&2
       echo "You are on Trixie. Use autoinstall.sh instead:" >&2
-      echo "  sudo bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/onlaj/Piano-LED-Visualizer/master/autoinstall.sh)\"" >&2
+      echo "  sudo bash -c \"\$(curl -fsSL ${PLV_RAW}/autoinstall.sh)\"" >&2
       exit 1
     fi
   fi
@@ -101,8 +108,11 @@ install_rtpmidi_server() {
 # Function to install Piano-LED-Visualizer
 install_piano_led_visualizer() {
   execute_command "cd /home/"
-  execute_command "sudo git clone https://github.com/onlaj/Piano-LED-Visualizer" "check_internet"
+  execute_command "sudo git clone --branch $PLV_BRANCH $PLV_REPO Piano-LED-Visualizer" "check_internet"
   execute_command "sudo chown -R $USER:$USER /home/Piano-LED-Visualizer"
+  # The visualizer opens up the permissions of its folder at every start; without this,
+  # git sees every file as modified and refuses to update
+  execute_command "git -C /home/Piano-LED-Visualizer config core.fileMode false"
   execute_command "sudo chmod -R u+rwx /home/Piano-LED-Visualizer"
   execute_command "cd Piano-LED-Visualizer"
   execute_command "sudo pip3 install -r requirements.txt --break-system-packages" "check_internet"

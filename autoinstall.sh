@@ -4,6 +4,13 @@
 # For Bookworm, use autoinstall_bookworm.sh instead.
 #
 
+# Repository and branch to install. The update button of the web interface follows the
+# same branch afterwards. To install something else, pass the variables through sudo:
+#   sudo env PLV_BRANCH=master bash -c "$(curl -fsSL ...)"
+PLV_REPO="${PLV_REPO:-https://github.com/emnbdx/Piano-LED-Visualizer}"
+PLV_BRANCH="${PLV_BRANCH:-claude/nifty-fermat-o9m74j}"
+PLV_RAW="${PLV_REPO/github.com/raw.githubusercontent.com}/${PLV_BRANCH}"
+
 # Function to display error message and exit
 display_error() {
   echo "Error: $1" >&2
@@ -19,7 +26,7 @@ require_trixie() {
   if [ "${VERSION_CODENAME:-}" != "trixie" ]; then
     echo "Error: This script requires Raspberry Pi OS Trixie (got: ${VERSION_CODENAME:-unknown})." >&2
     echo "For Bookworm, use autoinstall_bookworm.sh instead:" >&2
-    echo "  sudo bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/onlaj/Piano-LED-Visualizer/master/autoinstall_bookworm.sh)\"" >&2
+    echo "  sudo bash -c \"\$(curl -fsSL ${PLV_RAW}/autoinstall_bookworm.sh)\"" >&2
     exit 1
   fi
 }
@@ -149,8 +156,11 @@ install_rtpmidi_server() {
 # Function to install Piano-LED-Visualizer
 install_piano_led_visualizer() {
   execute_command "cd /home"
-  execute_command "sudo git clone https://github.com/onlaj/Piano-LED-Visualizer" "check_internet"
+  execute_command "sudo git clone --branch $PLV_BRANCH $PLV_REPO Piano-LED-Visualizer" "check_internet"
   execute_command "sudo chown -R $USER:$USER /home/Piano-LED-Visualizer"
+  # The visualizer opens up the permissions of its folder at every start; without this,
+  # git sees every file as modified and refuses to update
+  execute_command "git -C /home/Piano-LED-Visualizer config core.fileMode false"
   execute_command "cd /home/Piano-LED-Visualizer && python3 -m venv .venv"
   execute_command "cd /home/Piano-LED-Visualizer && .venv/bin/pip install --upgrade pip" "check_internet"
   execute_command "cd /home/Piano-LED-Visualizer && .venv/bin/pip install -r requirements.txt" "check_internet"

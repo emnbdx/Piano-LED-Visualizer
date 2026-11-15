@@ -97,16 +97,18 @@ You can also connect Raspberry Pi to your network [manually](https://github.com/
 
 Flash Raspberry Pi OS Lite, enable SSH (Imager OS customisation), boot, SSH in, then run the matching script. Each script refuses the wrong OS codename.
 
+These scripts install this fork, with the simple interface as the home page, and the update button of the web interface then follows the same branch. To install another repository or branch, pass `PLV_REPO` / `PLV_BRANCH` through sudo: `sudo env PLV_BRANCH=master bash -c "$(curl -fsSL ...)"`.
+
 **Trixie** (recommended):
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/onlaj/Piano-LED-Visualizer/master/autoinstall.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/emnbdx/Piano-LED-Visualizer/claude/nifty-fermat-o9m74j/autoinstall.sh)"
 ```
 
 **Bookworm** (legacy):
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/onlaj/Piano-LED-Visualizer/master/autoinstall_bookworm.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/emnbdx/Piano-LED-Visualizer/claude/nifty-fermat-o9m74j/autoinstall_bookworm.sh)"
 ```
 
 ### 3. **Manual installation**
