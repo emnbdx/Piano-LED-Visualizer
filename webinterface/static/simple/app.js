@@ -466,8 +466,7 @@
         state.userStopped = false;
         state.waiting = false;
         state.position = state.target = passageStart();
-        $("#score").textContent = "0";
-        $("#combo").textContent = "0";
+        resetGame();
         try {
             await setSetting("start_learning_song", "0");
             setRunning(true);
@@ -560,6 +559,130 @@
         });
     }
 
+    // --------------------------------------------------------- rhythm game
+    //
+    // In "In tempo" mode the engine plays on without listening to the player, so the page
+    // does the judging: every key press is matched to the closest expected note and rated
+    // by how far from the keyboard line it was played.
+
+    const JUDGEMENTS = [
+        {name: "excellent", window: 0.09, points: 100, color: "#ffd166"},
+        {name: "good", window: 0.18, points: 70, color: "#7be495"},
+        {name: "ok", window: 0.32, points: 40, color: "#a9bbdc"},
+    ];
+    const HIT_WINDOW = JUDGEMENTS[JUDGEMENTS.length - 1].window;  // seconds, at the tempo being played
+    const MISS_COLOR = "#ef6b5a";
+    const COMBO_STEPS = [[50, 4], [25, 3], [10, 2]];  // combo reached -> score multiplier
+
+    const game = {
+        results: new Map(),  // note index -> judgement name or "miss"
+        cursor: 0,           // first note not yet behind the player
+        score: 0,
+        combo: 0,
+        bestCombo: 0,
+        counts: {},
+        popups: [],          // judgements floating above the keys
+    };
+
+    const gameOn = () => state.running && learning().practice === 1;
+    const tempoFactor = () => (learning().tempo || 100) / 100;
+    const isMine = hand => {
+        const hands = learning().hands;
+        return hands === 0 || hand === 0 || hand === hands;
+    };
+    const multiplier = () => (COMBO_STEPS.find(([combo]) => game.combo >= combo) || [0, 1])[1];
+
+    function resetGame() {
+        game.results.clear();
+        game.score = game.combo = game.bestCombo = 0;
+        game.counts = {excellent: 0, good: 0, ok: 0, miss: 0, wrong: 0};
+        game.popups = [];
+        game.cursor = state.notes.findIndex(note => note[1] >= state.position - 0.01);
+        if (game.cursor < 0) game.cursor = state.notes.length;
+        showGameScore();
+    }
+
+    function showGameScore() {
+        $("#score").textContent = game.score;
+        $("#combo").textContent = game.combo + (multiplier() > 1 ? " ×" + multiplier() : "");
+    }
+
+    function addPopup(note, text, color) {
+        game.popups.push({note, text, color, born: performance.now()});
+    }
+
+    function breakCombo() {
+        game.combo = 0;
+        showGameScore();
+    }
+
+    function judgePress(note) {
+        if (!gameOn()) return;
+        const reach = HIT_WINDOW * tempoFactor();
+        let best = -1;
+        let bestDistance = Infinity;
+        for (let index = game.cursor; index < state.notes.length; index++) {
+            const [pitch, start, , hand] = state.notes[index];
+            if (start > state.position + reach) break;
+            if (pitch !== note || game.results.has(index) || !isMine(hand)) continue;
+            const distance = Math.abs(start - state.position);
+            if (distance < bestDistance) {
+                best = index;
+                bestDistance = distance;
+            }
+        }
+        if (best < 0 || bestDistance > reach) {
+            // a key nobody asked for
+            game.counts.wrong++;
+            addPopup(note, "✕", MISS_COLOR);
+            breakCombo();
+            return;
+        }
+        const seconds = bestDistance / tempoFactor();
+        const judgement = JUDGEMENTS.find(item => seconds <= item.window);
+        game.results.set(best, judgement.name);
+        game.counts[judgement.name]++;
+        game.combo++;
+        game.bestCombo = Math.max(game.bestCombo, game.combo);
+        game.score += judgement.points * multiplier();
+        addPopup(note, t("judge_" + judgement.name), judgement.color);
+        showGameScore();
+    }
+
+    // Notes that went past the keyboard line without being played
+    function sweepMisses(until) {
+        while (game.cursor < state.notes.length) {
+            const [pitch, start, , hand] = state.notes[game.cursor];
+            if (start >= until) break;
+            if (!game.results.has(game.cursor) && isMine(hand)) {
+                game.results.set(game.cursor, "miss");
+                game.counts.miss++;
+                addPopup(pitch, t("judge_miss"), MISS_COLOR);
+                breakCombo();
+            }
+            game.cursor++;
+        }
+    }
+
+    function showGameSummary() {
+        sweepMisses(passageEnd() + 0.001);
+        const counts = game.counts;
+        const total = counts.excellent + counts.good + counts.ok + counts.miss;
+        if (!total) return;
+        const accuracy = Math.round((counts.excellent + counts.good * 0.7 + counts.ok * 0.4) / total * 100);
+        const stars = [95, 85, 70, 50].filter(threshold => accuracy >= threshold).length + 1;
+        showSummary(game.score, [
+            [t("summary_rating"), "★".repeat(stars) + "☆".repeat(5 - stars)],
+            [t("summary_accuracy"), accuracy + " %"],
+            [t("judge_excellent"), counts.excellent],
+            [t("judge_good"), counts.good],
+            [t("judge_ok"), counts.ok],
+            [t("judge_miss"), counts.miss],
+            [t("summary_wrong"), counts.wrong],
+            [t("summary_best_combo"), game.bestCombo],
+        ]);
+    }
+
     // ----------------------------------------------------------- websocket
 
     function connectSocket() {
@@ -583,8 +706,12 @@
             const match = /note_(on|off).*?note=(\d+) velocity=(\d+)/.exec(data);
             if (!match) return;
             const note = Number(match[2]);
-            if (match[1] === "on" && Number(match[3]) > 0) state.pressed.add(note);
-            else state.pressed.delete(note);
+            if (match[1] === "on" && Number(match[3]) > 0) {
+                state.pressed.add(note);
+                judgePress(note);
+            } else {
+                state.pressed.delete(note);
+            }
             return;
         }
         if (!isNaN(Number(data))) {
@@ -595,20 +722,32 @@
         try { message = JSON.parse(data); } catch (e) { return; }
 
         switch (message.type) {
-            case "learning_state":
+            case "learning_state": {
+                // In tempo mode the engine has no score to report: the page sums up its own
+                const finished = !message.running && gameOn() && !state.userStopped;
+                if (finished) showGameSummary();
                 if (state.songReady) setRunning(message.running);
                 break;
+            }
             case "learning_wait":
                 state.waiting = message.waiting;
                 $("#wait-chip").hidden = !message.waiting;
                 break;
             case "score_update":
+                if (learning().practice !== 0) break;  // only "Wait for me" is scored by the engine
                 $("#score").textContent = Math.round(message.score);
                 $("#combo").textContent = message.combo;
                 break;
             case "session_summary":
                 // Summaries queue up on the server while no page is open: ignore those leftovers
-                if (state.sessionOpen && !state.userStopped && learning().practice !== 2) showSummary(message);
+                if (state.sessionOpen && !state.userStopped && learning().practice === 0) {
+                    showSummary($("#score").textContent, [
+                        [t("summary_mistakes_right"), message.mistakes_r_count || 0],
+                        [t("summary_mistakes_left"), message.mistakes_l_count || 0],
+                        [t("summary_late_right"), message.delay_r || 0],
+                        [t("summary_late_left"), message.delay_l || 0],
+                    ]);
+                }
                 state.sessionOpen = false;
                 break;
         }
@@ -619,23 +758,19 @@
     // previous time, heading to this one".
     function onSongTime(time) {
         if (!state.running) return;
-        const previous = time < state.target ? time : state.target;  // going backwards: the loop restarted
+        const restarted = time < state.target - 0.5;  // going backwards: the loop restarted
+        const previous = time < state.target ? time : state.target;
         state.target = time;
         if (Math.abs(state.position - previous) > 0.25) state.position = previous;
+        if (restarted) resetGame();
     }
 
-    function showSummary(summary) {
-        $("#summary-score").textContent = $("#score").textContent;
+    function showSummary(score, rows) {
+        $("#summary-score").textContent = score;
         const grid = $("#summary-grid");
         grid.replaceChildren();
-        const rows = [
-            ["summary_mistakes_right", summary.mistakes_r_count],
-            ["summary_mistakes_left", summary.mistakes_l_count],
-            ["summary_late_right", summary.delay_r],
-            ["summary_late_left", summary.delay_l],
-        ];
         for (const [label, value] of rows) {
-            grid.append(el("dt", {textContent: t(label)}), el("dd", {textContent: value || 0}));
+            grid.append(el("dt", {textContent: label}), el("dd", {textContent: value}));
         }
         $("#summary").showModal();
     }
@@ -743,7 +878,10 @@
         // Falling notes
         context.font = NOTE_FONT;
         nameWidths = nameWidths || NOTE_NAMES.map(name => context.measureText(name).width);
-        for (const [note, start, duration, hand] of state.notes) {
+        const playing = gameOn();
+        if (playing) sweepMisses(position - HIT_WINDOW * tempoFactor());
+        for (let index = 0; index < state.notes.length; index++) {
+            const [note, start, duration, hand] = state.notes[index];
             if (start > position + SECONDS_VISIBLE) break;
             const end = start + duration;
             if (end < position) continue;
@@ -763,8 +901,11 @@
             const top = Math.max(-8, Math.min(lane - (end - position) * scale + NOTE_GAP, bottom - 4));
             const noteHeight = bottom - top;
 
-            context.globalAlpha = mine ? 1 : 0.28;
-            context.fillStyle = active && mine ? shades.light : (key.black ? shades.dark : shades.base);
+            // In the rhythm game a note shows its fate: washed out once hit, grey once missed
+            const result = playing ? game.results.get(index) : undefined;
+            context.globalAlpha = mine ? (result ? 0.45 : 1) : 0.28;
+            if (result === "miss") context.fillStyle = "#6b6e7a";
+            else context.fillStyle = (active && mine) || result ? shades.light : (key.black ? shades.dark : shades.base);
             context.beginPath();
             context.roundRect(x, top, noteWidth, noteHeight, Math.min(5, noteWidth / 2));
             context.fill();
@@ -780,7 +921,7 @@
                 context.fillStyle = key.black ? "rgba(255, 255, 255, 0.9)" : "rgba(8, 10, 14, 0.72)";
                 context.fillText(NOTE_NAMES[note % 12], x + noteWidth / 2, bottom - 7);
             }
-            if (active && mine) sounding.set(note, shades);
+            if (active && mine && result !== "miss") sounding.set(note, shades);
         }
         context.globalAlpha = 1;
 
@@ -840,10 +981,42 @@
         context.fillStyle = state.waiting ? FREE_KEY : "rgba(255, 255, 255, 0.28)";
         context.fillRect(0, lane - 2, width, 2);
 
+        if (playing) drawGame(now, width, lane);
+
         if (state.duration) {
             $("#timeline-progress").style.left = Math.min(100, position / state.duration * 100) + "%";
             $("#timeline-time").textContent = clock(position) + " / " + clock(state.duration);
             followSheet(position / state.duration);
+        }
+    }
+
+    const POPUP_LIFE = 750;  // milliseconds
+
+    function drawGame(now, width, lane) {
+        // Judgements float up from the key they belong to
+        game.popups = game.popups.filter(popup => now - popup.born < POPUP_LIFE);
+        context.font = "800 15px system-ui, sans-serif";
+        for (const popup of game.popups) {
+            const key = keys[popup.note];
+            if (!key) continue;
+            const age = (now - popup.born) / POPUP_LIFE;
+            const half = context.measureText(popup.text).width / 2 + 4;
+            const x = Math.min(width - half, Math.max(half, key.x + key.width / 2));
+            context.globalAlpha = 1 - age * age;
+            context.fillStyle = popup.color;
+            context.fillText(popup.text, x, lane - 44 - age * 36);
+        }
+        context.globalAlpha = 1;
+
+        // The running combo sits at the top of the roll once it is worth showing
+        if (game.combo >= 3) {
+            context.fillStyle = "rgba(255, 255, 255, 0.92)";
+            context.font = "800 40px system-ui, sans-serif";
+            context.fillText(game.combo, width / 2, 52);
+            context.fillStyle = multiplier() > 1 ? "#ffd166" : "rgba(255, 255, 255, 0.55)";
+            context.font = "700 12px system-ui, sans-serif";
+            const label = t("combo").toUpperCase() + (multiplier() > 1 ? "  ×" + multiplier() : "");
+            context.fillText(label, width / 2, 72);
         }
     }
 
@@ -1489,6 +1662,7 @@
             learning().practice = Number(button.dataset.value);
             setSegment("mode-seg", button.dataset.value);
             updatePlayButton();
+            resetGame();  // scores of one mode mean nothing in another
             await setSetting("change_practice", button.dataset.value).catch(() => toast(t("error"), true));
         }));
         $$("#hands-seg button").forEach(button => button.addEventListener("click", async () => {
