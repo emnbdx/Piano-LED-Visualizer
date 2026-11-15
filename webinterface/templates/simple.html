@@ -33,6 +33,7 @@
         <aside class="library" id="library">
             <div class="library-head">
                 <h2 data-i18n="library"></h2>
+                <button id="library-close" class="icon-btn" data-i18n-title="library_hide" data-i18n-label="library_hide">‹</button>
                 <label class="btn btn-small">
                     <span data-i18n="add_songs"></span>
                     <input id="upload-input" type="file" multiple accept=".mid,.musicxml,.xml,.abc" hidden>
@@ -56,7 +57,7 @@
 
         <div class="stage">
             <div class="stage-head">
-                <button id="library-toggle" class="btn btn-small library-toggle" data-i18n="library"></button>
+                <button id="library-toggle" class="btn btn-small library-toggle"><span aria-hidden="true">☰</span><span data-i18n="library"></span></button>
                 <h1 id="song-title" data-i18n="pick_song"></h1>
                 <div class="scorebox" id="scorebox" hidden>
                     <span class="wait-chip" id="wait-chip" data-i18n="waiting" hidden></span>
@@ -222,6 +223,22 @@
         <button class="btn" id="summary-close" data-i18n="close"></button>
         <button class="btn btn-primary" id="summary-again" data-i18n="again"></button>
     </div>
+</dialog>
+
+<!-- Song options -->
+<dialog class="modal" id="song-dialog">
+    <h2 id="song-dialog-title"></h2>
+    <form id="song-dialog-form" class="form">
+        <label class="form-row"><span data-i18n="folder"></span><select id="song-folder" class="field"></select></label>
+        <input id="song-folder-name" class="field" type="text" maxlength="60" data-i18n-placeholder="folder_name" data-i18n-label="folder_name" hidden>
+        <div class="modal-foot modal-foot-split">
+            <button type="button" class="btn btn-danger" id="song-dialog-delete" data-i18n="delete_song"></button>
+            <span class="row">
+                <button type="button" class="btn" id="song-dialog-close" data-i18n="cancel"></button>
+                <button class="btn btn-primary" data-i18n="save"></button>
+            </span>
+        </div>
+    </form>
 </dialog>
 
 <!-- Confirmation -->

@@ -12,7 +12,7 @@
     --accent-ink: #1d1503;
     --danger: #ef6b5a;
     --ok: #4fca8b;
-    --roll-bg: #0e0f13;
+    --roll-bg: #15161b;
     --radius: 12px;
     --radius-small: 8px;
     --gutter: 16px;
@@ -194,37 +194,56 @@ main { flex: 1; min-height: 0; display: flex; }
 .library-head { display: flex; align-items: center; justify-content: space-between; }
 
 .song-list { flex: 1; min-height: 0; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
-.song-list li { display: flex; align-items: center; border-radius: var(--radius-small); }
-.song-list li:hover { background: var(--surface-2); }
-.song-list li.selected { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+.song-row { display: flex; align-items: center; border-radius: var(--radius-small); }
+.song-row:hover { background: var(--surface-2); }
+.song-row.selected { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
 .song-list .song {
     flex: 1;
     min-width: 0;
-    padding: 10px 12px;
+    padding: 9px 12px;
     border: 0;
     background: none;
     text-align: left;
     overflow-wrap: anywhere;
     cursor: pointer;
 }
-.song-list .song-delete {
+.song-more, .icon-btn {
     flex: none;
     width: 32px;
     height: 32px;
-    margin-right: 4px;
     border: 0;
     border-radius: 6px;
     background: none;
     color: var(--muted);
     font-size: 18px;
     line-height: 1;
-    opacity: 0;
     cursor: pointer;
 }
-.song-list li:hover .song-delete, .song-list .song-delete:focus-visible { opacity: 1; }
-.song-list .song-delete:hover { color: var(--danger); }
+.song-more { margin-right: 4px; opacity: 0; }
+.song-row:hover .song-more, .song-more:focus-visible { opacity: 1; }
+.song-more:hover, .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+@media (hover: none) { .song-more { opacity: 1; } }
 .song-list .empty { padding: 12px; color: var(--muted); font-size: 13px; }
-@media (hover: none) { .song-list .song-delete { opacity: 1; } }
+
+.folder-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 12px 9px 8px;
+    border: 0;
+    border-radius: var(--radius-small);
+    background: none;
+    font-weight: 650;
+    text-align: left;
+    cursor: pointer;
+}
+.folder-head:hover { background: var(--surface-2); }
+.folder-head .chevron { width: 14px; color: var(--muted); text-align: center; transition: transform 0.15s; }
+.folder-head[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+.folder-head .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.folder-head .count { color: var(--muted); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.folder-songs { margin: 0 0 4px 14px; padding: 0 0 0 8px; border-left: 1px solid var(--line); list-style: none; }
 
 .recorder { padding-top: 12px; border-top: 1px solid var(--line); }
 .record-active { display: flex; flex-direction: column; gap: 10px; }
@@ -237,7 +256,13 @@ main { flex: 1; min-height: 0; display: flex; }
 .stage { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; padding: var(--gutter); }
 .stage-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .stage-head h1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The library can be folded away to give the keyboard the whole width */
 .library-toggle { display: none; }
+.library-hidden .library-toggle { display: inline-flex; }
+.view-practice.library-hidden { grid-template-columns: minmax(0, 1fr); }
+.library-hidden .library { display: none; }
+.library-head h2 { flex: 1; }
+.library-head { gap: 6px; }
 
 .scorebox { display: flex; align-items: center; gap: 16px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .scorebox b { color: var(--text); font-size: 16px; }
@@ -426,6 +451,7 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; }
 .wizard-body { min-height: 120px; overflow-y: auto; }
 .wizard-foot, .modal-foot { display: flex; justify-content: space-between; gap: 12px; }
 .modal-foot { justify-content: flex-end; }
+.modal-foot-split { justify-content: space-between; flex-wrap: wrap; }
 
 .summary-score { font-size: 18px; }
 .summary-score b { font-size: 28px; }
@@ -462,6 +488,7 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; }
     .stage { height: 100%; overflow-y: auto; }
     .roll { min-height: 260px; }
     .library-toggle { display: inline-flex; }
+    .library-hidden .library.open { display: flex; }
     .library {
         position: absolute;
         inset: 0;

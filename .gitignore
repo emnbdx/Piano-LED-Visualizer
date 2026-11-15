@@ -6,3 +6,4 @@ config/settings.xml
 webinterface/node_modules
 visualizer.log
 
+Songs/folders.json

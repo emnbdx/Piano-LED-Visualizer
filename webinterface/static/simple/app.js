@@ -93,16 +93,34 @@
         position: 0,         // song time currently at the keyboard line
         target: 0,           // song time the engine is heading to
         pressed: new Set(),  // keys held on the real piano
-        colors: {1: "#7be495", 2: "#7aa7ff", 0: "#f2b544"},
+        bars: [],            // song time of each bar line
+        colors: {},          // shades per hand: 1 right, 2 left, 0 unknown (filled below)
     };
+
+    state.colors = {0: screenColors("#f2b544", 40), 1: screenColors("#00ff00", 150), 2: screenColors("#0000ff", 205)};
 
     const learning = () => (state.server ? state.server.learning : {});
 
-    // Screen colours follow the LED colours, lightened so they read on a dark background
-    function screenColor(hex) {
+    // Screen colours keep the hue of the LED colours, at a brightness that reads on the dark roll.
+    // Each hand gets three shades: falling note, note on a black key, note being played.
+    function screenColors(hex, fallbackHue) {
         const value = parseInt(hex.slice(1), 16);
-        const mix = channel => Math.round(channel + (255 - channel) * 0.35);
-        return `rgb(${mix(value >> 16)}, ${mix((value >> 8) & 255)}, ${mix(value & 255)})`;
+        const [r, g, b] = [value >> 16, (value >> 8) & 255, value & 255].map(channel => channel / 255);
+        const max = Math.max(r, g, b);
+        const delta = max - Math.min(r, g, b);
+        let hue = fallbackHue;  // white or black LEDs have no hue of their own
+        if (delta > 0.1) {
+            if (max === r) hue = ((g - b) / delta) % 6;
+            else if (max === g) hue = (b - r) / delta + 2;
+            else hue = (r - g) / delta + 4;
+            hue = Math.round(hue * 60 + 360) % 360;
+        }
+        return {
+            base: `hsl(${hue}, 90%, 63%)`,
+            dark: `hsl(${hue}, 75%, 46%)`,
+            light: `hsl(${hue}, 95%, 76%)`,
+            glow: `hsla(${hue}, 95%, 65%, 0.5)`,
+        };
     }
 
     async function refreshState() {
@@ -112,8 +130,8 @@
             updateStatus(false);
             return null;
         }
-        state.colors[1] = screenColor(state.server.learning.color_right);
-        state.colors[2] = screenColor(state.server.learning.color_left);
+        state.colors[1] = screenColors(state.server.learning.color_right, 150);
+        state.colors[2] = screenColors(state.server.learning.color_left, 205);
         syncControls();
         syncRecorder();
         updateStatus(true);
@@ -158,6 +176,22 @@
 
     // ------------------------------------------------------------- library
 
+    const COLLAPSED_STORAGE = "plv_collapsed_folders";
+
+    function collapsedFolders() {
+        try { return new Set(JSON.parse(recall(COLLAPSED_STORAGE)) || []); } catch (e) { return new Set(); }
+    }
+
+    function songRow(song) {
+        return el("li", {class: "song-row" + (song.name === state.song ? " selected" : "")},
+            el("button", {class: "song", textContent: song.title, onclick: () => selectSong(song.name)}),
+            el("button", {
+                class: "song-more", textContent: "⋯", title: t("song_options"),
+                "aria-label": t("song_options") + " " + song.title,
+                onclick: () => openSongDialog(song),
+            }));
+    }
+
     function renderSongs() {
         const list = $("#song-list");
         const query = $("#song-search").value.trim().toLowerCase();
@@ -168,15 +202,29 @@
             list.append(el("li", {class: "empty", textContent: t(state.songs.length ? "no_match" : "no_songs")}));
             return;
         }
-        for (const song of songs) {
-            list.append(el("li", {class: song.name === state.song ? "selected" : ""},
-                el("button", {class: "song", textContent: song.title, onclick: () => selectSong(song.name)}),
+
+        const collapsed = collapsedFolders();
+        const folders = [...new Set(songs.map(song => song.folder).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, simpleLanguage(), {sensitivity: "base"}));
+        for (const folder of folders) {
+            const inside = songs.filter(song => song.folder === folder);
+            // A search shows its matches wherever they are
+            const open = !!query || !collapsed.has(folder);
+            list.append(el("li", {class: "folder"},
                 el("button", {
-                    class: "song-delete", textContent: "×", title: t("delete_song"),
-                    "aria-label": t("delete_song") + " " + song.title,
-                    onclick: () => deleteSong(song),
-                })));
+                    class: "folder-head", "aria-expanded": String(open),
+                    onclick: () => {
+                        if (collapsed.has(folder)) collapsed.delete(folder);
+                        else collapsed.add(folder);
+                        remember(COLLAPSED_STORAGE, JSON.stringify([...collapsed]));
+                        renderSongs();
+                    },
+                }, el("span", {class: "chevron", textContent: "›"}),
+                    el("span", {class: "name", textContent: folder}),
+                    el("span", {class: "count", textContent: inside.length})),
+                open ? el("ul", {class: "folder-songs"}, ...inside.map(songRow)) : null));
         }
+        list.append(...songs.filter(song => !song.folder).map(songRow));
     }
 
     async function loadSongs() {
@@ -196,6 +244,52 @@
         }
         await setSetting("remove_song", song.name).catch(() => toast(t("error"), true));
         loadSongs();
+    }
+
+    const NEW_FOLDER = "\u0000new";
+
+    function openSongDialog(song) {
+        const dialog = $("#song-dialog");
+        const select = $("#song-folder");
+        const name = $("#song-folder-name");
+        const folders = [...new Set(state.songs.map(item => item.folder).filter(Boolean))].sort();
+
+        $("#song-dialog-title").textContent = song.title;
+        select.replaceChildren(
+            el("option", {value: "", textContent: t("folder_none")}),
+            ...folders.map(folder => el("option", {value: folder, textContent: folder})),
+            el("option", {value: NEW_FOLDER, textContent: t("folder_new")}));
+        select.value = song.folder;
+        name.value = "";
+        name.hidden = true;
+        select.onchange = () => {
+            name.hidden = select.value !== NEW_FOLDER;
+            if (!name.hidden) name.focus();
+        };
+        $("#song-dialog-form").onsubmit = async event => {
+            event.preventDefault();
+            const folder = select.value === NEW_FOLDER ? name.value.trim() : select.value;
+            dialog.close();
+            if (folder === song.folder) return;
+            await postJson("/api/simple/song_folder", {song: song.name, folder})
+                .catch(() => toast(t("error"), true));
+            loadSongs();
+        };
+        $("#song-dialog-delete").onclick = () => {
+            dialog.close();
+            deleteSong(song);
+        };
+        $("#song-dialog-close").onclick = () => dialog.close();
+        dialog.showModal();
+    }
+
+    function toggleLibrary() {
+        if (window.matchMedia("(max-width: 860px)").matches) {
+            $("#library").classList.toggle("open");  // small screens: the library slides over the stage
+            return;
+        }
+        const hidden = $("#view-practice").classList.toggle("library-hidden");
+        remember("plv_library_hidden", hidden ? "1" : "0");
     }
 
     async function uploadFiles(files) {
@@ -299,6 +393,7 @@
         state.notes = [];
         state.duration = 0;
         state.percentTimes = [];
+        state.bars = [];
         $("#song-title").textContent = t("pick_song");
         $("#roll-hint").hidden = false;
         $("#timeline").hidden = true;
@@ -334,6 +429,7 @@
             state.notes = data.notes;
             state.duration = data.duration;
             state.percentTimes = data.percent_times;
+            state.bars = data.bars || [];
 
             // The engine parses the file in the background
             for (let attempt = 0; attempt < 240; attempt++) {
@@ -564,7 +660,7 @@
         rollSize = {
             width: box.width,
             height: box.height,
-            keyboard: Math.min(130, Math.max(64, box.height * 0.24)),
+            keyboard: Math.min(170, Math.max(72, box.height * 0.27)),
         };
         layoutKeys();
     }
@@ -587,6 +683,10 @@
         }
     }
 
+    const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const WRONG_KEY = "#ef6b5a";
+    const FREE_KEY = "#f2b544";
+
     function drawFrame(now) {
         requestAnimationFrame(drawFrame);
         const elapsed = Math.min(0.1, (now - lastFrame) / 1000);
@@ -602,16 +702,26 @@
         const scale = lane / SECONDS_VISIBLE;     // pixels per second
         const position = state.position;
         const hands = learning().hands;           // 0 both, 1 right, 2 left
-        const sounding = new Map();               // note -> colour of the note crossing the line
+        const sounding = new Map();               // note -> shades of the note crossing the line
 
         context.clearRect(0, 0, width, height);
+        context.textAlign = "center";
 
-        // Octave guides
-        context.fillStyle = "rgba(255, 255, 255, 0.05)";
+        // Grid: a line at every C (stronger) and F, and one per bar
         keys.forEach((key, note) => {
-            if (note % 12 === 0) context.fillRect(Math.round(key.x), 0, 1, lane);
+            const semitone = note % 12;
+            if (key.black || (semitone !== 0 && semitone !== 5)) return;
+            context.fillStyle = semitone === 0 ? "rgba(255, 255, 255, 0.10)" : "rgba(255, 255, 255, 0.04)";
+            context.fillRect(Math.round(key.x), 0, 1, lane);
         });
+        context.fillStyle = "rgba(255, 255, 255, 0.07)";
+        for (const bar of state.bars) {
+            if (bar > position + SECONDS_VISIBLE) break;
+            if (bar >= position) context.fillRect(0, Math.round(lane - (bar - position) * scale), width, 1);
+        }
 
+        // Falling notes
+        context.font = "700 10px system-ui, sans-serif";
         for (const [note, start, duration, hand] of state.notes) {
             if (start > position + SECONDS_VISIBLE) break;
             const end = start + duration;
@@ -619,32 +729,85 @@
             const key = keys[note];
             if (!key) continue;
 
-            const bottom = lane - (start - position) * scale;
-            const top = Math.max(-8, lane - (end - position) * scale);
+            const shades = state.colors[hand];
             const mine = hands === 0 || hand === 0 || hand === hands;
-            const inset = key.black ? 0 : key.width * 0.12;
+            const active = start <= position + 0.02;
+            const inset = key.black ? 0 : Math.min(3, key.width * 0.1);
+            const x = key.x + inset;
+            const noteWidth = key.width - inset * 2;
+            const top = Math.max(-8, lane - (end - position) * scale);
+            const bottom = Math.min(lane, lane - (start - position) * scale);
+            const noteHeight = Math.max(4, bottom - top);
 
-            context.globalAlpha = mine ? 1 : 0.3;
-            context.fillStyle = state.colors[hand];
+            context.globalAlpha = mine ? 1 : 0.28;
+            context.fillStyle = active && mine ? shades.light : (key.black ? shades.dark : shades.base);
             context.beginPath();
-            context.roundRect(key.x + inset, top, key.width - inset * 2, Math.max(3, Math.min(bottom, lane) - top), 4);
+            context.roundRect(x, top, noteWidth, noteHeight, Math.min(5, noteWidth / 2));
             context.fill();
-            if (start <= position + 0.02 && mine) sounding.set(note, state.colors[hand]);
+
+            if (noteWidth >= 11 && noteHeight >= 16) {
+                context.fillStyle = key.black ? "rgba(255, 255, 255, 0.9)" : "rgba(8, 10, 14, 0.72)";
+                context.fillText(NOTE_NAMES[note % 12], x + noteWidth / 2, top + noteHeight - 5);
+            }
+            if (active && mine) sounding.set(note, shades);
         }
         context.globalAlpha = 1;
 
-        // Keyboard
-        const blackHeight = keyboard * 0.62;
-        const paint = (key, note, y, keyHeight, idle) => {
-            context.fillStyle = state.pressed.has(note) ? "#f2b544" : (sounding.get(note) || idle);
-            context.beginPath();
-            context.roundRect(key.x + 0.5, y, key.width - 1, keyHeight, [0, 0, 3, 3]);
-            context.fill();
-        };
-        keys.forEach((key, note) => { if (!key.black) paint(key, note, lane, keyboard, "#f1efe9"); });
-        keys.forEach((key, note) => { if (key.black) paint(key, note, lane, blackHeight, "#1a1b20"); });
+        // Glow rising from the keys being played
+        for (const [note, shades] of sounding) {
+            const key = keys[note];
+            const glow = context.createLinearGradient(0, lane - 90, 0, lane);
+            glow.addColorStop(0, "rgba(0, 0, 0, 0)");
+            glow.addColorStop(1, shades.glow);
+            context.fillStyle = glow;
+            context.fillRect(key.x - 5, lane - 90, key.width + 10, 90);
+        }
 
-        context.fillStyle = state.waiting ? "#f2b544" : "rgba(255, 255, 255, 0.35)";
+        // Keyboard. A held key is tinted by the hand when it is the expected note,
+        // red when it is a wrong one during a session, amber when playing freely.
+        const practising = state.running && learning().practice !== 2;
+        const keyColor = (note, idle) => {
+            const expected = sounding.get(note);
+            if (state.pressed.has(note)) return expected ? expected.light : (practising ? WRONG_KEY : FREE_KEY);
+            return expected ? expected.base : idle;
+        };
+        const blackHeight = keyboard * 0.62;
+        const whiteWidth = keys.find(key => key && !key.black).width;
+
+        context.fillStyle = "#08090c";
+        context.fillRect(0, lane, width, keyboard);
+        keys.forEach((key, note) => {
+            if (key.black) return;
+            context.fillStyle = keyColor(note, "#f4f2ec");
+            context.beginPath();
+            context.roundRect(key.x + 0.75, lane, key.width - 1.5, keyboard - 1, [0, 0, 4, 4]);
+            context.fill();
+        });
+        // Key names: every white key when there is room, otherwise only the Cs
+        context.font = "600 9px system-ui, sans-serif";
+        context.fillStyle = "rgba(20, 22, 28, 0.45)";
+        keys.forEach((key, note) => {
+            if (key.black || (whiteWidth < 17 && note % 12 !== 0) || whiteWidth < 11) return;
+            context.fillText(NOTE_NAMES[note % 12] + (Math.floor(note / 12) - 1), key.x + key.width / 2, lane + keyboard - 8);
+        });
+        keys.forEach((key, note) => {
+            if (!key.black) return;
+            const idle = context.createLinearGradient(0, lane, 0, lane + blackHeight);
+            idle.addColorStop(0, "#2b2d35");
+            idle.addColorStop(1, "#101115");
+            context.fillStyle = keyColor(note, idle);
+            context.beginPath();
+            context.roundRect(key.x, lane, key.width, blackHeight, [0, 0, 3, 3]);
+            context.fill();
+        });
+        // Shadow under the fallboard gives the keys some depth
+        const shade = context.createLinearGradient(0, lane, 0, lane + 10);
+        shade.addColorStop(0, "rgba(0, 0, 0, 0.35)");
+        shade.addColorStop(1, "rgba(0, 0, 0, 0)");
+        context.fillStyle = shade;
+        context.fillRect(0, lane, width, 10);
+
+        context.fillStyle = state.waiting ? FREE_KEY : "rgba(255, 255, 255, 0.28)";
         context.fillRect(0, lane - 2, width, 2);
 
         if (state.duration) {
@@ -1247,7 +1410,8 @@
             uploadFiles(Array.from(event.target.files));
             event.target.value = "";
         });
-        $("#library-toggle").addEventListener("click", () => $("#library").classList.toggle("open"));
+        $("#library-toggle").addEventListener("click", toggleLibrary);
+        $("#library-close").addEventListener("click", toggleLibrary);
 
         $("#record-start").addEventListener("click", () => recorderAction("start_recording"));
         $("#record-save").addEventListener("click", () => recorderAction("save_recording", "record_saved"));
@@ -1335,6 +1499,7 @@
         translatePage();
         bindEvents();
         $("#sheet-toggle").checked = recall("plv_sheet") === "1";
+        $("#view-practice").classList.toggle("library-hidden", recall("plv_library_hidden") === "1");
         updatePlayButton();
 
         await refreshState();

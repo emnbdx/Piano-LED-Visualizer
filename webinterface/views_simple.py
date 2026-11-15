@@ -236,8 +236,28 @@ def simple_wifi():
     })
 
 
+# Folders are labels kept next to the songs: the files themselves stay flat in Songs/,
+# which the learning engine, the cache and the advanced interface all rely on.
+FOLDERS_FILE = os.path.join(SONGS_DIR, 'folders.json')
+
+
+def _read_folders():
+    try:
+        with open(FOLDERS_FILE, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+        return {str(song): str(folder) for song, folder in data.items() if folder}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _write_folders(folders):
+    with open(FOLDERS_FILE, 'w', encoding='utf-8') as handle:
+        json.dump(folders, handle, ensure_ascii=False, indent=1)
+
+
 @webinterface.route('/api/simple/songs', methods=['GET'])
 def simple_songs():
+    folders = _read_folders()
     songs = []
     for name in os.listdir(SONGS_DIR):
         if "_#" in name or not name.lower().endswith('.mid'):
@@ -247,10 +267,34 @@ def simple_songs():
         songs.append({
             "name": name,
             "title": base[:-5] if base.endswith("_main") else base,
+            "folder": folders.get(name, ""),
             "date": os.path.getmtime(path),
         })
     songs.sort(key=lambda s: s["title"].lower())
     return jsonify(songs=songs)
+
+
+@webinterface.route('/api/simple/song_folder', methods=['POST'])
+def simple_song_folder():
+    """Put a song in a folder; an empty folder name takes it out."""
+    data = request.get_json(silent=True) or {}
+    name = data.get("song")
+    if not _song_path(name):
+        return jsonify(success=False, error="Song not found"), 404
+    folder = " ".join(str(data.get("folder") or "").split())[:60]
+
+    # Drop entries of songs deleted since, so folders disappear with their last song
+    folders = {song: label for song, label in _read_folders().items() if _song_path(song)}
+    if folder:
+        folders[name] = folder
+    else:
+        folders.pop(name, None)
+    try:
+        _write_folders(folders)
+    except OSError as e:
+        logger.warning(f"Could not save song folders: {e}")
+        return jsonify(success=False, error="Could not save"), 500
+    return jsonify(success=True, folder=folder)
 
 
 @webinterface.route('/api/simple/song_notes', methods=['GET'])
@@ -267,15 +311,34 @@ def simple_song_notes():
         mid = mido.MidiFile(path, clip=True)
         assign_hands(mid)
 
+        ticks_per_beat = mid.ticks_per_beat or 480
+        tempo = 500000
         elapsed = 0.0
+        ticks = 0
+        bar_ticks = ticks_per_beat * 4   # until a time signature says otherwise
+        next_bar = 0
         message_times = []  # one entry per merged message, like LearnMIDI.song_tracks
+        bars = []
         held = {}
         notes = []
-        for msg in mid:
-            if not msg.is_meta:
-                # LearnMIDI.notes_time only advances on non-meta messages
-                elapsed += msg.time
+        # Same walk as mido's own iteration (which the engine uses), keeping the ticks
+        # so that bar lines can be placed
+        for msg in mido.merge_tracks(mid.tracks):
+            delta = mido.tick2second(msg.time, ticks_per_beat, tempo) if msg.time else 0.0
+            # LearnMIDI.notes_time only advances on non-meta messages
+            advance = 0.0 if msg.is_meta else delta
+            while msg.time and next_bar <= ticks + msg.time:
+                bars.append(round(elapsed + advance * (next_bar - ticks) / msg.time, 3))
+                next_bar += bar_ticks
+            ticks += msg.time
+            elapsed += advance
             message_times.append(elapsed)
+
+            if msg.type == 'set_tempo':
+                tempo = msg.tempo
+            elif msg.type == 'time_signature':
+                bar_ticks = max(1, int(ticks_per_beat * 4 * msg.numerator / msg.denominator))
+                next_bar = ticks + bar_ticks
             if msg.is_meta or msg.type not in ('note_on', 'note_off'):
                 continue
             key = (msg.note, msg.channel)
@@ -295,7 +358,8 @@ def simple_song_notes():
     percent_times = [round(message_times[min(int(p * count / 100), count - 1)], 3) if count else 0
                      for p in range(101)]
 
-    return jsonify(success=True, notes=notes, duration=round(elapsed, 3), percent_times=percent_times)
+    return jsonify(success=True, notes=notes, duration=round(elapsed, 3),
+                   percent_times=percent_times, bars=bars)
 
 
 @webinterface.route('/api/simple/sheet', methods=['GET'])
