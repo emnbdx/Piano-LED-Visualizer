@@ -26,6 +26,23 @@ class Hotspot:
         import threading
         threading.Thread(target=chmod_background, daemon=True).start()
 
+def git_environment(project_root):
+    """Environment that lets the service (root) run git in a checkout owned by another user.
+
+    The installer hands the checkout to the login user while the service runs as root, and
+    git refuses to touch a repository owned by someone else ("dubious ownership"). Naming
+    the owner in SUDO_UID is how sudo tells git that root is acting on that user's behalf.
+    """
+    env = dict(os.environ)
+    try:
+        if os.geteuid() == 0:
+            env["SUDO_UID"] = str(os.stat(project_root).st_uid)
+    except OSError:
+        pass
+    env["GIT_TERMINAL_PROMPT"] = "0"  # never hang waiting for credentials
+    return env
+
+
 class PlatformBase:
     def __getattr__(self, name):
         def method(*args, **kwargs):
@@ -210,22 +227,25 @@ class PlatformRasp(PlatformBase):
             f"deps={'venv' if use_venv else 'system pip'})"
         )
 
-        call("sudo git reset --hard HEAD", shell=True)
-        call("sudo git checkout .", shell=True)
-        call(
-            "sudo git clean -fdx -e Songs/ -e "
-            "config/settings.xml -e config/wpa_disable_ap.conf -e visualizer.log "
-            "-e .venv -e .venv/",
-            shell=True,
-        )
-        call("sudo git clean -fdx Songs/cache", shell=True)
+        # Already root here: plain git with the owner named, as sudo would drop it
+        env = git_environment(project_root)
+
+        def git(arguments):
+            result = subprocess.run("git " + arguments, shell=True, env=env, capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error(f"git {arguments} failed: {(result.stderr or result.stdout).strip()}")
+            return result.returncode == 0
+
+        git("reset --hard HEAD")
+        git("checkout .")
+        git("clean -fdx -e Songs/ -e config/settings.xml -e config/wpa_disable_ap.conf "
+            "-e visualizer.log -e .venv -e .venv/")
+        git("clean -fdx Songs/cache")
         # Follow the branch this install is on (a fork, for instance); installs that
         # track nothing keep pulling the original master
-        tracks_branch = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-            capture_output=True, check=False,
-        ).returncode == 0
-        call("sudo git pull" if tracks_branch else "sudo git pull origin master", shell=True)
+        tracks_branch = git("rev-parse --abbrev-ref --symbolic-full-name @{u}")
+        if not git("pull" if tracks_branch else "pull origin master"):
+            return
         PlatformRasp._install_requirements(project_root, use_venv)
         # The new code only runs once the service is restarted
         PlatformRasp.restart_visualizer()

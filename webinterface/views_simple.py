@@ -386,8 +386,14 @@ UPDATE_CHECK_INTERVAL = 6 * 3600  # seconds between two looks at the remote
 _update_cache = {"time": 0, "result": None}
 
 
-def _git(root, *args, timeout=30):
-    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=timeout, check=False)
+def _git(root, *args, timeout=60):
+    from lib.platform import git_environment
+    result = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=timeout,
+                            check=False, env=git_environment(root))
+    if result.returncode != 0:
+        # shows up in the Debug tab, which is where one looks when the check fails
+        logger.warning(f"git {' '.join(args)} failed: {(result.stderr or result.stdout).strip()}")
+    return result
 
 
 def check_for_update(root=PROJECT_ROOT):
