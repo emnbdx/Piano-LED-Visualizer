@@ -598,7 +598,7 @@ class MidiPorts:
         try:
             from webinterface import app_state, webinterface
 
-            if hasattr(app_state, "practice_active") and app_state.practice_active:
+            if getattr(app_state, "practice_active", False) or getattr(app_state, "key_subscribers", None):
                 msg_type = getattr(msg, "type", "")
                 if msg_type in ("note_on", "note_off"):
                     channel = getattr(msg, "channel", 0)

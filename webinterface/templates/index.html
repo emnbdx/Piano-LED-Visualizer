@@ -374,6 +374,24 @@
                     </li>
                 </ul>
 
+                <ul class="p-2 overflow-hidden">
+                    <li>
+                        <a href="/"
+                           class="flex items-center p-2 space-x-2 rounded-glass-sm transition-smooth-fast hover:glass-light hover:shadow-glass"
+                           :class="{'justify-center': !isSidebarOpen}"
+                        >
+                <span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                    </svg>
+                </span>
+                            <span :class="{ 'lg:hidden': !isSidebarOpen }">
+                                Simple interface
+                            </span>
+                        </a>
+                    </li>
+                </ul>
+
                 <ul @click="closeSidebarMenu()" onclick="loadAjax('practice')" class="p-2 overflow-hidden">
                     <li>
                         <a

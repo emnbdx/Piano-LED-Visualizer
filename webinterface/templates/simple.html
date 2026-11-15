@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Piano LED Visualizer</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16x16.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='simple/simple.css') }}">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="brand">
+        <img src="{{ url_for('static', filename='logo.svg') }}" alt="" width="28" height="28">
+        <span>Piano LED</span>
+    </div>
+    <nav class="tabs" role="tablist">
+        <button role="tab" data-view="practice" data-i18n="tab_practice"></button>
+        <button role="tab" data-view="settings" data-i18n="tab_settings"></button>
+        <button role="tab" data-view="debug" data-i18n="tab_debug"></button>
+    </nav>
+    <div class="status" id="piano-status">
+        <span class="dot"></span>
+        <span id="piano-status-text"></span>
+    </div>
+</header>
+
+<main>
+    <!-- Practice: the home page -->
+    <section class="view view-practice" id="view-practice">
+        <aside class="library" id="library">
+            <div class="library-head">
+                <h2 data-i18n="library"></h2>
+                <label class="btn btn-small">
+                    <span data-i18n="add_songs"></span>
+                    <input id="upload-input" type="file" multiple accept=".mid,.musicxml,.xml,.abc" hidden>
+                </label>
+            </div>
+            <input id="song-search" class="field" type="search" data-i18n-placeholder="search_songs" data-i18n-label="search_songs">
+            <ul id="song-list" class="song-list"></ul>
+            <div class="recorder" id="recorder">
+                <button id="record-start" class="btn btn-block">
+                    <span class="rec-dot"></span><span data-i18n="record"></span>
+                </button>
+                <div id="record-active" class="record-active" hidden>
+                    <div class="record-status"><span class="rec-dot live"></span><span data-i18n="recording"></span> <span id="record-time" class="mono">0:00</span></div>
+                    <div class="row">
+                        <button id="record-save" class="btn btn-primary" data-i18n="record_save"></button>
+                        <button id="record-cancel" class="btn" data-i18n="record_cancel"></button>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <div class="stage">
+            <div class="stage-head">
+                <button id="library-toggle" class="btn btn-small library-toggle" data-i18n="library"></button>
+                <h1 id="song-title" data-i18n="pick_song"></h1>
+                <div class="scorebox" id="scorebox" hidden>
+                    <span class="wait-chip" id="wait-chip" data-i18n="waiting" hidden></span>
+                    <span><span data-i18n="score"></span> <b id="score" class="mono">0</b></span>
+                    <span><span data-i18n="combo"></span> <b id="combo" class="mono">0</b></span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="play-btn" class="btn btn-primary btn-play" disabled></button>
+
+                <div class="control">
+                    <span class="control-label" data-i18n="mode"></span>
+                    <div class="seg" id="mode-seg" role="radiogroup">
+                        <button data-value="0" data-i18n="mode_wait" data-i18n-title="mode_wait_help"></button>
+                        <button data-value="1" data-i18n="mode_rhythm" data-i18n-title="mode_rhythm_help"></button>
+                        <button data-value="2" data-i18n="mode_listen" data-i18n-title="mode_listen_help"></button>
+                    </div>
+                </div>
+
+                <div class="control">
+                    <span class="control-label" data-i18n="hands"></span>
+                    <div class="seg" id="hands-seg" role="radiogroup">
+                        <button data-value="2" data-i18n="hands_left"></button>
+                        <button data-value="0" data-i18n="hands_both"></button>
+                        <button data-value="1" data-i18n="hands_right"></button>
+                    </div>
+                </div>
+
+                <div class="control control-tempo">
+                    <label class="control-label" for="tempo"><span data-i18n="tempo"></span> <output id="tempo-value" class="mono">100%</output></label>
+                    <input id="tempo" type="range" min="20" max="150" step="5" value="100">
+                </div>
+
+                <div class="toggles">
+                    <label class="switch"><input id="leds-toggle" type="checkbox"><span class="track"></span><span data-i18n="leds"></span></label>
+                    <label class="switch"><input id="loop-toggle" type="checkbox"><span class="track"></span><span data-i18n="loop"></span></label>
+                    <label class="switch"><input id="sheet-toggle" type="checkbox"><span class="track"></span><span data-i18n="sheet"></span></label>
+                </div>
+            </div>
+
+            <div class="sheet" id="sheet-panel" hidden></div>
+
+            <div class="roll">
+                <canvas id="roll"></canvas>
+                <p class="roll-hint" id="roll-hint" data-i18n="pick_song_hint"></p>
+            </div>
+
+            <div class="timeline" id="timeline" hidden>
+                <span class="control-label" data-i18n="passage"></span>
+                <div class="timeline-bar" id="timeline-bar">
+                    <div class="timeline-range" id="timeline-range"></div>
+                    <div class="timeline-progress" id="timeline-progress"></div>
+                    <button class="timeline-handle" id="handle-start" data-i18n-label="passage_start"></button>
+                    <button class="timeline-handle" id="handle-end" data-i18n-label="passage_end"></button>
+                </div>
+                <span class="mono timeline-time" id="timeline-time"></span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Settings -->
+    <section class="view view-pages" id="view-settings" hidden>
+        <div class="cards">
+            <article class="card"><h2 data-i18n="wifi"></h2><div id="settings-wifi"></div></article>
+            <article class="card"><h2 data-i18n="piano"></h2><div id="settings-piano"></div></article>
+            <article class="card card-wide"><h2 data-i18n="led_strip"></h2><div id="settings-leds"></div></article>
+            <article class="card">
+                <h2 data-i18n="system"></h2>
+                <div class="stack">
+                    <button class="btn btn-block" data-system="restart_visualizer" data-i18n="restart_visualizer"></button>
+                    <button class="btn btn-block" data-system="update_rpi" data-confirm="confirm_update" data-i18n="update"></button>
+                    <button class="btn btn-block" data-system="restart_rpi" data-confirm="confirm_restart_pi" data-i18n="restart_pi"></button>
+                    <button class="btn btn-block btn-danger" data-system="turnoff_rpi" data-confirm="confirm_shutdown_pi" data-i18n="shutdown_pi"></button>
+                </div>
+            </article>
+            <article class="card">
+                <h2 data-i18n="interface"></h2>
+                <div class="stack">
+                    <label class="form-row"><span data-i18n="language"></span><select id="language" class="field"></select></label>
+                    <button id="rerun-wizard" class="btn btn-block" data-i18n="rerun_wizard"></button>
+                    <a class="btn btn-block" href="/advanced" data-i18n="advanced_ui"></a>
+                    <p class="help" data-i18n="advanced_ui_help"></p>
+                </div>
+            </article>
+        </div>
+    </section>
+
+    <!-- Debug -->
+    <section class="view view-pages" id="view-debug" hidden>
+        <div class="cards">
+            <article class="card card-wide">
+                <h2 data-i18n="stats"></h2>
+                <div class="stats" id="stats"></div>
+            </article>
+            <article class="card card-wide">
+                <div class="card-head">
+                    <h2 data-i18n="logs"></h2>
+                    <div class="row">
+                        <select id="logs-lines" class="field field-small">
+                            <option value="100"></option>
+                            <option value="500"></option>
+                            <option value="2000"></option>
+                        </select>
+                        <button id="logs-refresh" class="btn btn-small" data-i18n="logs_refresh"></button>
+                        <button id="logs-copy" class="btn btn-small" data-i18n="logs_copy"></button>
+                    </div>
+                </div>
+                <pre class="logs" id="logs"></pre>
+            </article>
+        </div>
+    </section>
+</main>
+
+<!-- Setup wizard -->
+<dialog class="wizard" id="wizard">
+    <div class="wizard-head">
+        <span class="wizard-step mono" id="wizard-step"></span>
+        <button class="link" id="wizard-skip" data-i18n="wizard_skip"></button>
+    </div>
+    <div class="wizard-progress"><div id="wizard-progress-fill"></div></div>
+    <h2 id="wizard-title"></h2>
+    <p class="wizard-text" id="wizard-text"></p>
+    <div class="wizard-body" id="wizard-body"></div>
+    <div class="wizard-foot">
+        <button class="btn" id="wizard-back" data-i18n="wizard_back"></button>
+        <button class="btn btn-primary" id="wizard-next"></button>
+    </div>
+</dialog>
+
+<!-- End of session summary -->
+<dialog class="modal" id="summary">
+    <h2 data-i18n="summary_title"></h2>
+    <p class="summary-score"><span data-i18n="score"></span> <b id="summary-score" class="mono">0</b></p>
+    <dl class="summary-grid" id="summary-grid"></dl>
+    <div class="modal-foot">
+        <button class="btn" id="summary-close" data-i18n="close"></button>
+        <button class="btn btn-primary" id="summary-again" data-i18n="again"></button>
+    </div>
+</dialog>
+
+<!-- Confirmation -->
+<dialog class="modal" id="confirm">
+    <p id="confirm-text"></p>
+    <div class="modal-foot">
+        <button class="btn" id="confirm-no" data-i18n="cancel"></button>
+        <button class="btn btn-primary" id="confirm-yes" data-i18n="confirm"></button>
+    </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="{{ url_for('static', filename='simple/i18n.js') }}"></script>
+<script src="{{ url_for('static', filename='simple/app.js') }}"></script>
+</body>
+</html>

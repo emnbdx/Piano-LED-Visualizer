@@ -136,6 +136,10 @@ If you don't have a 3d printer, try to find some company or private person who w
 ## Web interface
 The visualizer comes with a web interface with which you can control the colors of the LED strip, change port settings, run animations of the strip, control sequences and manage midi files, including downloading, uploading, renaming, deleting, and playing.
 
+The home page is a simple interface built around practising: a song library, a keyboard with falling notes that follows the LEDs, the practice options (mode, hands, tempo, passage to loop, score), recording and sheet music. A setup assistant opens on the first visit to connect the Wi-Fi, choose the piano and line the LEDs up with the keys; it can be run again from the Settings tab, which also holds the LED hardware settings and the system controls. The Debug tab shows the system statistics and the logs.
+
+Everything else (light modes, animations, sequences, profiles...) stays available in the original interface at `/advanced`.
+
 To connect to the web interface, type the local address of your raspberry pi in the browser, for example [http://192.168.1.10](http://192.168.1.10)
 Both devices must be connected to the same network. By default, web interface works on port 80 through any available IP address, but if needed it can be changed in `config/settings.xml`:
 

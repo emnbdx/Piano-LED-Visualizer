@@ -46,6 +46,34 @@ def get_tempo(mid):
     return 500000  # If not found return default tempo
 
 
+# Bump when the hand assignment below changes so stale caches are rebuilt
+SONG_CACHE_VERSION = 2
+
+# Single-track files carry no hand information; split them at middle C
+HAND_SPLIT_NOTE = 60
+
+
+def assign_hands(mid):
+    """Tag every note with its hand: channel 1 = right hand, channel 2 = left hand."""
+    note_tracks = [t for t in mid.tracks
+                   if any(not m.is_meta and m.type in ('note_on', 'note_off') for m in t)]
+    split_by_pitch = len(note_tracks) == 1
+
+    if len(mid.tracks) == 2:  # check if the midi file has only 2 Tracks
+        offset = 1
+    else:
+        offset = 0
+    for k in range(len(mid.tracks)):
+        for msg in mid.tracks[k]:
+            if not msg.is_meta and msg.type in ['note_on', 'note_off']:
+                if split_by_pitch:
+                    msg.channel = 1 if msg.note >= HAND_SPLIT_NOTE else 2
+                else:
+                    msg.channel = k + offset
+                if msg.type == 'note_off':
+                    msg.velocity = 0
+
+
 class LearnMIDI:
     def __init__(self, usersettings, ledsettings, midiports, ledstrip):
         self.menu = None
@@ -192,6 +220,8 @@ class LearnMIDI:
                 logger.info("Loading song from cache")
                 with open('Songs/cache/' + song_path + '.p', 'rb') as handle:
                     cache = pickle.load(handle)
+                    if cache.get('version') != SONG_CACHE_VERSION:
+                        return False
                     self.song_tempo = cache['song_tempo']
                     self.ticks_per_beat = cache['ticks_per_beat']
                     self.song_tracks = cache['song_tracks']
@@ -263,16 +293,7 @@ class LearnMIDI:
 
             # Assign Tracks to different channels before merging to know the message origin
             self.loading = 2  # 2 = Proces
-            if len(mid.tracks) == 2:  # check if the midi file has only 2 Tracks
-                offset = 1
-            else:
-                offset = 0
-            for k in range(len(mid.tracks)):
-                for msg in mid.tracks[k]:
-                    if not msg.is_meta and msg.type in ['note_on', 'note_off']:
-                        msg.channel = k + offset
-                        if msg.type == 'note_off':
-                            msg.velocity = 0
+            assign_hands(mid)
 
             # Merge tracks
             self.loading = 3  # 3 = Merge
@@ -289,7 +310,8 @@ class LearnMIDI:
             # Save to cache
             with open('Songs/cache/' + song_path + '.p', 'wb') as handle:
                 cache = {'song_tempo': self.song_tempo, 'ticks_per_beat': self.ticks_per_beat,
-                         'notes_time': self.notes_time, 'song_tracks': self.song_tracks, }
+                         'notes_time': self.notes_time, 'song_tracks': self.song_tracks,
+                         'version': SONG_CACHE_VERSION}
                 pickle.dump(cache, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
             self.loading = 4  # 4 = Done
@@ -422,6 +444,7 @@ class LearnMIDI:
             self.delay_countR = 0
             self.delay_countL = 0
             score_logger.debug("score reset" +str(self.score_manager.get_score()))
+            self.socket_send.append(json.dumps({"type": "learning_state", "running": True}))
                   
             # Send score update to frontend
             self.socket_send.append(json.dumps({
@@ -502,6 +525,7 @@ class LearnMIDI:
                             self.next_note_delay = tDelay
                             midi_time += tDelay
 
+                            self.socket_send.append(json.dumps({"type": "learning_wait", "waiting": True}))
                             while not set(notes_to_press).issubset(notes_pressed) and self.is_started_midi:
                                 if self.awaiting_restart_loop:
                                     break
@@ -597,6 +621,7 @@ class LearnMIDI:
                                 # and color was overwritten
                                 self.predict_future_notes(absolute_idx, end_idx, notes_to_press)
                             
+                            self.socket_send.append(json.dumps({"type": "learning_wait", "waiting": False}))
                             hand_hint_notesL = []
                             hand_hint_notesR = []
                             # Play any pending software notes only after all required notes have been pressed
@@ -697,6 +722,10 @@ class LearnMIDI:
 
             if not self.is_loop_active or self.is_started_midi is False:
                 keep_looping = False
+                # Free the piano for normal playing once the song is over
+                self.is_started_midi = False
+                fastColorWipe(self.ledstrip.strip, True, self.ledsettings)
+                self.socket_send.append(json.dumps({"type": "learning_state", "running": False}))
 
             # Update profile highscore
             try:

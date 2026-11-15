@@ -40,6 +40,7 @@ class AppState:
         # Currently selected profile id (set by web UI); None if not selected
         self.practice_active = False  # Track when practice tab is active
         self.websocket_midi_clients = set()  # Track active websocket MIDI clients
+        self.key_subscribers = set()  # Websocket clients that only want to see the keys played on the piano
 
 
 # Create a single instance of AppState
@@ -52,7 +53,7 @@ def start_server(loop):
         logger.info("Starting MIDI broadcast task")
         while True:
             try:
-                if app_state.practice_active:
+                if app_state.practice_active or app_state.key_subscribers:
                     messages = []
                     # Safely move messages from queue to local list
                     # deque append is atomic, but we use a robust pattern: 
@@ -115,8 +116,11 @@ def start_server(loop):
                 try:
                     async for message in websocket:
                         try:
+                            if message == "subscribe_keys":
+                                # Simple UI: mirror the piano keys without taking over the LEDs
+                                app_state.key_subscribers.add(websocket)
                             # Check if it's a MIDI message string
-                            if isinstance(message, str) and message.startswith("midi_event"):
+                            elif isinstance(message, str) and message.startswith("midi_event"):
                                 # Forward to midiports for processing
                                 if app_state.midiports:
                                     app_state.midiports.add_websocket_midi_message(message)
@@ -142,6 +146,7 @@ def start_server(loop):
         except Exception as e:
             logger.warning(f"WebSocket learning handler error: {e}")
         finally:
+            app_state.key_subscribers.discard(websocket)
             if websocket in app_state.websocket_midi_clients:
                 app_state.websocket_midi_clients.remove(websocket)
                 logger.info(f"WebSocket MIDI client disconnected. Active clients: {len(app_state.websocket_midi_clients)}")
@@ -259,7 +264,7 @@ def stop_server(loop):
 
 
 # Import views after app is defined to avoid circular imports
-from webinterface import views, views_api
+from webinterface import views, views_api, views_simple
 from webinterface import webinterface, app_state
 
 # Attach profile manager without modifying existing AppState.__init__

@@ -26,6 +26,11 @@ def before_request():
 
 @webinterface.route('/')
 def index():
+    return render_template('simple.html')
+
+
+@webinterface.route('/advanced')
+def advanced():
     return render_template('index.html')
 
 

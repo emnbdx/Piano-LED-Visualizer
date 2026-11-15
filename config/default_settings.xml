@@ -165,6 +165,8 @@
     <web_listen_ip></web_listen_ip>
     <web_listen_port></web_listen_port>
 
+    <setup_done>0</setup_done>
+    <piano_keys>88</piano_keys>
     <practice_tool_url>https://piano-visualizer.pages.dev</practice_tool_url>
 
 </settings>
