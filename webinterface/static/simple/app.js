@@ -90,6 +90,7 @@
         waiting: false,      // the engine is waiting for the player's notes
         userStopped: false,
         sessionOpen: false,  // a session was started or followed from this page
+        passScore: 0,        // score of the current pass in "Wait for me" mode
         position: 0,         // song time currently at the keyboard line
         target: 0,           // song time the engine is heading to
         pressed: new Set(),  // keys held on the real piano
@@ -234,6 +235,7 @@
             state.songs = [];
         }
         renderSongs();
+        showBest();
     }
 
     async function deleteSong(song) {
@@ -398,6 +400,7 @@
         $("#roll-hint").hidden = false;
         $("#timeline").hidden = true;
         $("#sheet-panel").hidden = true;
+        $("#bestbox").hidden = true;
         updatePlayButton();
         renderSongs();
     }
@@ -448,6 +451,7 @@
             }
             state.songReady = true;
             state.position = state.target = passageStart();
+            showBest();
             $("#timeline").hidden = false;
             updatePlayButton();
             updateTimeline();
@@ -466,6 +470,7 @@
         state.userStopped = false;
         state.waiting = false;
         state.position = state.target = passageStart();
+        state.passScore = 0;
         resetGame();
         try {
             await setSetting("start_learning_song", "0");
@@ -557,6 +562,32 @@
             movePassage(which, (which === "start" ? status.start_point : status.end_point) + step);
             commitPassage(which);
         });
+    }
+
+    // ---------------------------------------------------------- best score
+
+    const currentSong = () => state.songs.find(song => song.name === state.song);
+
+    function showBest() {
+        const song = currentSong();
+        const best = song && song.best ? song.best[learning().practice] : 0;
+        $("#best").textContent = best || 0;
+        $("#bestbox").hidden = !best || learning().practice === 2;
+    }
+
+    // Only a pass over the whole song counts: a short passage would make scores meaningless
+    async function recordScore(score, mode) {
+        const status = learning();
+        const song = currentSong();
+        if (!song || status.start_point > 0 || status.end_point < 100) return null;
+        try {
+            const result = await postJson("/api/simple/best_score", {song: song.name, mode, score: Math.round(score)});
+            song.best = Object.assign({}, song.best, {[mode]: result.best});
+            showBest();
+            return result;
+        } catch (e) {
+            return null;
+        }
     }
 
     // --------------------------------------------------------- rhythm game
@@ -671,7 +702,7 @@
         if (!total) return;
         const accuracy = Math.round((counts.excellent + counts.good * 0.7 + counts.ok * 0.4) / total * 100);
         const stars = [95, 85, 70, 50].filter(threshold => accuracy >= threshold).length + 1;
-        showSummary(game.score, [
+        showSummary(game.score, 1, [
             [t("summary_rating"), "★".repeat(stars) + "☆".repeat(5 - stars)],
             [t("summary_accuracy"), accuracy + " %"],
             [t("judge_excellent"), counts.excellent],
@@ -735,13 +766,17 @@
                 break;
             case "score_update":
                 if (learning().practice !== 0) break;  // only "Wait for me" is scored by the engine
+                // the engine zeroes the score when a pass starts (last_update 0): keep the pass's own
+                if (message.last_update !== 0) state.passScore = message.score;
                 $("#score").textContent = Math.round(message.score);
                 $("#combo").textContent = message.combo;
                 break;
             case "session_summary":
                 // Summaries queue up on the server while no page is open: ignore those leftovers
                 if (state.sessionOpen && !state.userStopped && learning().practice === 0) {
-                    showSummary($("#score").textContent, [
+                    const score = Math.round(state.passScore);
+                    state.passScore = 0;
+                    showSummary(score, 0, [
                         [t("summary_mistakes_right"), message.mistakes_r_count || 0],
                         [t("summary_mistakes_left"), message.mistakes_l_count || 0],
                         [t("summary_late_right"), message.delay_r || 0],
@@ -762,17 +797,32 @@
         const previous = time < state.target ? time : state.target;
         state.target = time;
         if (Math.abs(state.position - previous) > 0.25) state.position = previous;
-        if (restarted) resetGame();
+        if (restarted) {
+            // The loop went round: that pass is over, bank its score before starting afresh
+            const mode = learning().practice;
+            if (mode === 1) recordScore(game.score, 1);
+            else if (mode === 0 && state.passScore) recordScore(state.passScore, 0);
+            state.passScore = 0;
+            resetGame();
+        }
     }
 
-    function showSummary(score, rows) {
+    async function showSummary(score, mode, rows) {
         $("#summary-score").textContent = score;
         const grid = $("#summary-grid");
         grid.replaceChildren();
         for (const [label, value] of rows) {
             grid.append(el("dt", {textContent: label}), el("dd", {textContent: value}));
         }
+        const line = $("#summary-record");
+        line.hidden = true;
         $("#summary").showModal();
+
+        const result = await recordScore(score, mode);
+        if (!result) return;
+        line.textContent = result.record ? t("new_record") : t("best_score_is", {n: result.best});
+        line.classList.toggle("new", result.record);
+        line.hidden = false;
     }
 
     // ------------------------------------------------------- falling notes
@@ -1663,6 +1713,7 @@
             setSegment("mode-seg", button.dataset.value);
             updatePlayButton();
             resetGame();  // scores of one mode mean nothing in another
+            showBest();
             await setSetting("change_practice", button.dataset.value).catch(() => toast(t("error"), true));
         }));
         $$("#hands-seg button").forEach(button => button.addEventListener("click", async () => {

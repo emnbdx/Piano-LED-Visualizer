@@ -59,6 +59,7 @@
             <div class="stage-head">
                 <button id="library-toggle" class="btn btn-small library-toggle"><span aria-hidden="true">☰</span><span data-i18n="library"></span></button>
                 <h1 id="song-title" data-i18n="pick_song"></h1>
+                <div class="scorebox" id="bestbox" hidden><span><span data-i18n="best_score"></span> <b id="best" class="mono">0</b></span></div>
                 <div class="scorebox" id="scorebox" hidden>
                     <span class="wait-chip" id="wait-chip" data-i18n="waiting" hidden></span>
                     <span><span data-i18n="score"></span> <b id="score" class="mono">0</b></span>
@@ -220,6 +221,7 @@
 <dialog class="modal" id="summary">
     <h2 data-i18n="summary_title"></h2>
     <p class="summary-score"><span data-i18n="score"></span> <b id="summary-score" class="mono">0</b></p>
+    <p class="summary-record" id="summary-record" hidden></p>
     <dl class="summary-grid" id="summary-grid"></dl>
     <div class="modal-foot">
         <button class="btn" id="summary-close" data-i18n="close"></button>

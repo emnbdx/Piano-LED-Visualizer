@@ -455,6 +455,8 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; }
 
 .summary-score { font-size: 18px; }
 .summary-score b { font-size: 28px; }
+.summary-record { color: var(--muted); font-size: 14px; }
+.summary-record.new { color: var(--accent); font-weight: 700; }
 .summary-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; margin: 0; }
 .summary-grid dt { color: var(--muted); }
 .summary-grid dd { margin: 0; font-weight: 650; font-variant-numeric: tabular-nums; text-align: right; }

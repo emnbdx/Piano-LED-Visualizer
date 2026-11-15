@@ -256,9 +256,52 @@ def _write_folders(folders):
         json.dump(folders, handle, ensure_ascii=False, indent=1)
 
 
+# Best score of each song per practice mode ("0" wait for me, "1" in tempo), kept with the
+# songs so that it survives updates and is the same on every device
+SCORES_FILE = os.path.join(SONGS_DIR, 'best_scores.json')
+
+
+def _read_scores():
+    try:
+        with open(SCORES_FILE, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+        return {str(song): {str(mode): int(score) for mode, score in modes.items()}
+                for song, modes in data.items()}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
+
+
+@webinterface.route('/api/simple/best_score', methods=['POST'])
+def simple_best_score():
+    """Record a finished pass; answers with the best score, and whether this one beat it."""
+    data = request.get_json(silent=True) or {}
+    name = data.get("song")
+    mode = str(data.get("mode"))
+    if not _song_path(name) or mode not in ("0", "1"):
+        return jsonify(success=False, error="Unknown song or mode"), 400
+    try:
+        score = max(0, int(data.get("score", 0)))
+    except (TypeError, ValueError):
+        return jsonify(success=False, error="Invalid score"), 400
+
+    scores = {song: modes for song, modes in _read_scores().items() if _song_path(song)}
+    previous = scores.get(name, {}).get(mode, 0)
+    record = score > previous
+    if record:
+        scores.setdefault(name, {})[mode] = score
+        try:
+            with open(SCORES_FILE, 'w', encoding='utf-8') as handle:
+                json.dump(scores, handle, ensure_ascii=False, indent=1)
+        except OSError as e:
+            logger.warning(f"Could not save best scores: {e}")
+            return jsonify(success=False, error="Could not save"), 500
+    return jsonify(success=True, best=max(score, previous), record=record)
+
+
 @webinterface.route('/api/simple/songs', methods=['GET'])
 def simple_songs():
     folders = _read_folders()
+    scores = _read_scores()
     songs = []
     for name in os.listdir(SONGS_DIR):
         if "_#" in name or not name.lower().endswith('.mid'):
@@ -269,6 +312,7 @@ def simple_songs():
             "name": name,
             "title": base[:-5] if base.endswith("_main") else base,
             "folder": folders.get(name, ""),
+            "best": scores.get(name, {}),
             "date": os.path.getmtime(path),
         })
     songs.sort(key=lambda s: s["title"].lower())
