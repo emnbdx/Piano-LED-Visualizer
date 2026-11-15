@@ -330,6 +330,33 @@ main { flex: 1; min-height: 0; display: flex; }
 .card-wide { grid-column: 1 / -1; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 
+/* One section at a time: navigation on the left, a single column of cards on the right */
+.settings {
+    display: grid;
+    grid-template-columns: 190px minmax(0, 640px);
+    gap: 24px;
+    align-items: start;
+    justify-content: center;
+}
+.settings-nav { position: sticky; top: 0; display: flex; flex-direction: column; gap: 4px; }
+.settings-nav button {
+    padding: 10px 14px;
+    border: 0;
+    border-radius: var(--radius-small);
+    background: transparent;
+    color: var(--muted);
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.settings-nav button:hover { color: var(--text); }
+.settings-nav button[aria-selected="true"] { background: var(--surface-2); color: var(--text); }
+.settings-section { display: flex; flex-direction: column; gap: var(--gutter); }
+
+/* Long lists scroll inside the card so the page keeps its shape */
+.net-scroll { max-height: 264px; overflow-y: auto; }
+
 .net-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .net-item { border: 1px solid var(--line); border-radius: var(--radius-small); }
 .net-item.current { border-color: var(--ok); }
@@ -341,17 +368,18 @@ main { flex: 1; min-height: 0; display: flex; }
 .notice { padding: 10px 12px; border-radius: var(--radius-small); background: var(--surface-2); font-size: 14px; }
 .notice.bad { color: var(--danger); }
 
-.led-grid { display: flex; flex-direction: column; gap: 16px; max-width: 560px; }
-.led-grid .switch { justify-content: space-between; white-space: normal; }
-.led-grid input[type="range"] { width: 200px; max-width: 55%; }
+.form { display: flex; flex-direction: column; gap: 16px; }
+.form input[type="range"] { width: 200px; max-width: 55%; }
+.stack-tight { display: flex; flex-direction: column; gap: 6px; }
+.switch-row { justify-content: space-between; white-space: normal; }
+.row-end { justify-content: flex-end; }
+hr { width: 100%; margin: 0; border: 0; border-top: 1px solid var(--line); }
+h3 { margin: 0; font-size: 14px; font-weight: 650; }
 .stepper { display: inline-flex; align-items: center; gap: 6px; }
 .stepper .btn { min-width: 40px; padding: 0; font-size: 18px; }
 .stepper .field { width: 64px; min-width: 0; padding: 8px 4px; text-align: center; }
 
-details.hardware { border-top: 1px solid var(--line); padding-top: 12px; }
-details.hardware summary { cursor: pointer; font-weight: 600; }
-details.hardware .led-grid { margin-top: 14px; }
-.offsets { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.offsets { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .offset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
 .offset-row input { width: 76px; }
 
@@ -428,6 +456,8 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; }
     .status span:last-child { display: none; }
     .tabs button { padding: 7px 10px; }
 
+    .settings { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .settings-nav { position: static; flex-direction: row; overflow-x: auto; }
     .view-practice { display: block; position: relative; }
     .stage { height: 100%; overflow-y: auto; }
     .roll { min-height: 260px; }

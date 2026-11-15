@@ -74,6 +74,41 @@ def _learning_state():
     }
 
 
+def _lights_state():
+    return {
+        "mode": _setting("mode", "Normal"),
+        "color_mode": _setting("color_mode", "Single"),
+        # how long the light takes to fade, per light mode (milliseconds)
+        "durations": {
+            "Fading": _int_setting("fadingspeed", 1000),
+            "Velocity": _int_setting("velocity_speed", 3000),
+            "Pedal": _int_setting("pedal_speed", 3000),
+            "Pulse": _int_setting("pulse_animation_speed", 1000),
+        },
+    }
+
+
+def _animations_state():
+    # lib.led_animations pulls in lib.functions, keep it out of the import cycle
+    from lib.led_animations import get_registry
+
+    menu = app_state.menu
+    running = None
+    if getattr(menu, 'is_animation_running', False) or getattr(menu, 'is_idle_animation_running', False):
+        running = getattr(menu, 'current_animation_name', None)
+
+    return {
+        # animations needing an extra parameter (chords, colormap) stay in the advanced interface
+        "list": [{"id": info.web_id, "name": info.name, "label": info.display_name}
+                 for info in get_registry().get_all() if not info.requires_param],
+        "running": running,
+        "speed": _setting("led_animation_speed", "Medium") or "Medium",
+        "idle": _setting("led_animation", ""),
+        "idle_delay": _int_setting("led_animation_delay"),
+        "idle_brightness": _int_setting("led_animation_brightness_percent", 50),
+    }
+
+
 @webinterface.route('/api/simple/state', methods=['GET'])
 def simple_state():
     piano_keys = _int_setting("piano_keys", 88)
@@ -106,6 +141,8 @@ def simple_state():
             "pin": str(_setting("led_pin", "18") or "18"),
             "note_offsets": note_offsets,
         },
+        "lights": _lights_state(),
+        "animations": _animations_state(),
         "learning": _learning_state(),
         "recording": bool(app_state.saving.is_recording),
     })

@@ -146,9 +146,7 @@
 
         clearInterval(viewTimer);
         if (name === "settings") {
-            mountWifi($("#settings-wifi"));
-            mountPiano($("#settings-piano"));
-            mountLeds($("#settings-leds"), {hardware: true});
+            refreshState().then(() => showSettingsSection(recall("plv_settings_section")));
         } else if (name === "debug") {
             loadStats();
             loadLogs();
@@ -720,7 +718,7 @@
     function mountWifi(container) {
         const status = el("p", {class: "notice"});
         const message = el("p", {class: "notice", hidden: true});
-        const list = el("ul", {class: "net-list"});
+        const list = el("ul", {class: "net-list net-scroll"});
         const scanButton = el("button", {class: "btn btn-small", textContent: t("wifi_scan"), onclick: scan});
         const disconnectButton = el("button", {
             class: "btn btn-small", textContent: t("wifi_disconnect"), hidden: true,
@@ -841,7 +839,43 @@
         render();
     }
 
-    // ----------------------------------------------------------------- LEDs
+    // ------------------------------------------------------- form helpers
+
+    function saveSetting(name, value, flash) {
+        return setSetting(name, value)
+            .then(() => { if (flash) flashReferenceKeys(); })
+            .catch(() => toast(t("error"), true));
+    }
+
+    function formRow(label, control, help) {
+        return el("div", {class: "stack-tight"},
+            el("label", {class: "form-row"}, el("span", {textContent: t(label)}), control),
+            help ? el("p", {class: "help", textContent: t(help)}) : null);
+    }
+
+    // options: plain values, or [value, label] pairs
+    function selectField(options, selected, onchange) {
+        const node = el("select", {class: "field", onchange: () => onchange(node.value)});
+        const pairs = options.map(option => (Array.isArray(option) ? option : [option, option]));
+        if (!pairs.some(([value]) => String(value) === String(selected))) pairs.unshift([selected, selected]);
+        for (const [value, label] of pairs) {
+            node.append(el("option", {value, textContent: label, selected: String(value) === String(selected)}));
+        }
+        return node;
+    }
+
+    function numberField(value, onchange) {
+        const input = el("input", {class: "field", type: "number", value, onchange: () => onchange(Number(input.value))});
+        return input;
+    }
+
+    function rangeField(value, min, max, onchange) {
+        const input = el("input", {type: "range", min, max, value});
+        input.addEventListener("change", () => onchange(input.value));
+        return input;
+    }
+
+    // ------------------------------------------------------ LED alignment
 
     const KEYBOARD_SIZES = [88, 76, 73, 61, 49];
     const LED_DENSITIES = [60, 72, 100, 120, 144, 160, 180, 200];
@@ -853,70 +887,41 @@
         postJson("/api/simple/test_leds", {notes: [first, 60, last]}).catch(() => {});
     }
 
-    function mountLeds(container, options) {
+    function mountAlignment(container) {
         if (!state.server) return;
         const leds = state.server.leds;
-        const save = (name, value, flash) => setSetting(name, value)
-            .then(() => { if (flash) flashReferenceKeys(); })
-            .catch(() => toast(t("error"), true));
-        const row = (label, control, help) => el("div", {class: "stack"},
-            el("label", {class: "form-row"}, el("span", {textContent: t(label)}), control),
-            help ? el("p", {class: "help", textContent: t(help)}) : null);
-        const select = (values, selected, label, onchange) => {
-            const node = el("select", {class: "field", onchange: () => onchange(node.value)});
-            if (!values.map(String).includes(String(selected))) values = [selected, ...values];
-            for (const value of values) {
-                node.append(el("option", {
-                    value, textContent: label ? label(value) : value, selected: String(value) === String(selected),
-                }));
-            }
-            return node;
-        };
-        const number = (value, onchange) => {
-            const input = el("input", {class: "field", type: "number", value, onchange: () => onchange(Number(input.value))});
-            return input;
-        };
 
-        const shiftInput = number(leds.shift, value => save("shift", Math.round(value), true));
+        const shiftInput = numberField(leds.shift, value => saveSetting("shift", Math.round(value), true));
         const nudge = step => {
             shiftInput.value = Number(shiftInput.value) + step;
-            save("shift", shiftInput.value, true);
+            saveSetting("shift", shiftInput.value, true);
         };
         const reverse = el("input", {type: "checkbox", checked: !!leds.reverse});
-        reverse.addEventListener("change", () => save("reverse", reverse.checked ? 1 : 0, true));
+        reverse.addEventListener("change", () => saveSetting("reverse", reverse.checked ? 1 : 0, true));
 
-        const main = el("div", {class: "led-grid"},
-            row("led_keys", select(KEYBOARD_SIZES, state.server.piano_keys, n => t("led_keys_option", {n}), async value => {
+        const sizes = KEYBOARD_SIZES.map(n => [n, t("led_keys_option", {n})]);
+        container.replaceChildren(el("div", {class: "form"},
+            formRow("led_keys", selectField(sizes, state.server.piano_keys, async value => {
                 await postJson("/api/simple/setup", {piano_keys: Number(value), apply_layout: true})
                     .catch(() => toast(t("error"), true));
                 await refreshState();
                 layoutKeys();
-                mountLeds(container, options);
+                mountAlignment(container);
                 flashReferenceKeys();
             })),
-            row("led_shift", el("span", {class: "stepper"},
+            formRow("led_shift", el("span", {class: "stepper"},
                 el("button", {class: "btn", textContent: "−", "aria-label": "-1", onclick: () => nudge(-1)}),
                 shiftInput,
                 el("button", {class: "btn", textContent: "+", "aria-label": "+1", onclick: () => nudge(1)})), "led_shift_help"),
-            el("label", {class: "switch"}, el("span", {textContent: t("led_reverse")}), reverse, el("span", {class: "track"})),
-            el("div", {class: "stack"},
+            el("label", {class: "switch switch-row"}, el("span", {textContent: t("led_reverse")}), reverse, el("span", {class: "track"})),
+            el("div", {class: "stack-tight"},
                 el("button", {class: "btn", textContent: t("led_test"), onclick: flashReferenceKeys}),
-                el("p", {class: "help", textContent: t("led_test_help")})),
-            row("led_color", (() => {
-                const input = el("input", {class: "field", type: "color", value: leds.color});
-                input.addEventListener("change", () => save("led_color", input.value.slice(1)));
-                return input;
-            })()),
-            row("led_brightness", (() => {
-                const input = el("input", {type: "range", min: 1, max: 100, value: leds.brightness});
-                input.addEventListener("change", () => save("brightness", input.value));
-                return input;
-            })()));
-
-        container.replaceChildren(el("div", {class: "stack"}, main, options && options.hardware ? hardwareSection(leds, save, select, number, row) : null));
+                el("p", {class: "help", textContent: t("led_test_help")}))));
     }
 
-    function hardwareSection(leds, save, select, number, row) {
+    function mountHardware(container) {
+        if (!state.server) return;
+        const leds = state.server.leds;
         const offsets = leds.note_offsets.map(pair => pair.slice());
         const offsetList = el("div", {class: "offsets"});
 
@@ -925,7 +930,7 @@
             .catch(() => toast(t("error"), true));
 
         function renderOffsets() {
-            offsetList.replaceChildren(el("p", {class: "help", textContent: t("offsets_help")}));
+            offsetList.replaceChildren();
             offsets.forEach((pair, index) => {
                 const input = position => {
                     const node = el("input", {class: "field", type: "number", value: pair[position]});
@@ -959,23 +964,167 @@
         }
         renderOffsets();
 
-        const pin = select(LED_PINS, leds.pin, null, async value => {
+        const pin = selectField(LED_PINS, leds.pin, async value => {
             if (await askConfirm(t("led_pin_confirm"))) {
-                save("led_pin", value);
+                saveSetting("led_pin", value);
                 toast(t("action_sent"));
             } else {
                 pin.value = leds.pin;
             }
         });
 
-        return el("details", {class: "hardware"},
-            el("summary", {textContent: t("hardware")}),
-            el("div", {class: "led-grid"},
-                row("led_count", number(leds.count, value => save("led_count", Math.max(1, Math.round(value))))),
-                row("led_per_meter", select(LED_DENSITIES, leds.per_meter, null, value => save("leds_per_meter", value, true))),
-                row("led_pin", pin)),
-            el("h2", {textContent: t("offsets"), style: "margin-top: 18px"}),
-            offsetList);
+        container.replaceChildren(el("div", {class: "form"},
+            formRow("led_count", numberField(leds.count, value => saveSetting("led_count", Math.max(1, Math.round(value))))),
+            formRow("led_per_meter", selectField(LED_DENSITIES, leds.per_meter, value => saveSetting("leds_per_meter", value, true))),
+            formRow("led_pin", pin),
+            el("div", {class: "stack-tight"},
+                el("h3", {textContent: t("offsets")}),
+                el("p", {class: "help", textContent: t("offsets_help")}),
+                offsetList)));
+    }
+
+    // -------------------------------------------------------------- lights
+
+    const COLOR_MODES = ["Single", "Rainbow", "VelocityRainbow", "Gradient", "Scale", "Speed", "Multicolor"];
+    const LIGHT_MODES = ["Normal", "Fading", "Velocity", "Pedal", "Pulse"];
+    const LIGHT_DURATION_SETTING = {
+        Fading: "fading_speed", Velocity: "velocity_speed", Pedal: "pedal_speed", Pulse: "pulse_animation_speed",
+    };
+    const LIGHT_DURATIONS = [200, 500, 1000, 2000, 3000, 5000, 8000, 10000];
+    const seconds = milliseconds => t("seconds", {n: (milliseconds / 1000).toLocaleString(simpleLanguage())});
+
+    // options.modes: also offer the colour modes (settings page); the wizard only asks for a colour
+    function mountColor(container, options) {
+        if (!state.server) return;
+        const leds = state.server.leds;
+        const lights = state.server.lights;
+        const rows = [];
+
+        if (options && options.modes) {
+            rows.push(formRow("color_mode", selectField(
+                COLOR_MODES.map(mode => [mode, t("color_mode_" + mode)]), lights.color_mode, async value => {
+                    lights.color_mode = value;
+                    await saveSetting("color_mode", value);
+                    mountColor(container, options);
+                }), "color_mode_help_" + lights.color_mode));
+        }
+        if (!(options && options.modes) || lights.color_mode === "Single") {
+            const picker = el("input", {class: "field", type: "color", value: leds.color});
+            picker.addEventListener("change", async () => {
+                leds.color = picker.value;
+                lights.color_mode = "Single";  // choosing a colour switches to the single colour mode
+                await saveSetting("led_color", picker.value.slice(1));
+            });
+            rows.push(formRow("led_color", picker));
+        }
+        rows.push(formRow("led_brightness", rangeField(leds.brightness, 1, 100, value => {
+            leds.brightness = Number(value);
+            saveSetting("brightness", value);
+        })));
+        container.replaceChildren(el("div", {class: "form"}, ...rows));
+    }
+
+    function mountLightMode(container) {
+        if (!state.server) return;
+        const lights = state.server.lights;
+        const rows = [formRow("light_mode", selectField(
+            LIGHT_MODES.map(mode => [mode, t("light_mode_" + mode)]), lights.mode, async value => {
+                lights.mode = value;
+                await saveSetting("light_mode", value);
+                mountLightMode(container);
+            }), "light_mode_help_" + lights.mode)];
+
+        const setting = LIGHT_DURATION_SETTING[lights.mode];
+        if (setting) {
+            rows.push(formRow("light_duration", selectField(
+                LIGHT_DURATIONS.map(ms => [ms, seconds(ms)]), lights.durations[lights.mode], value => {
+                    lights.durations[lights.mode] = Number(value);
+                    saveSetting(setting, value);
+                })));
+        }
+        container.replaceChildren(el("div", {class: "form"}, ...rows));
+    }
+
+    function mountAnimations(container) {
+        if (!state.server) return;
+        const animations = state.server.animations;
+        const run = name => api("/api/start_animation?name=" + encodeURIComponent(name))
+            .catch(() => toast(t("error"), true));
+
+        const preview = selectField(animations.list.map(item => [item.id, item.label]),
+            animations.running || (animations.list[0] || {}).id, () => {});
+        const startButton = el("button", {
+            class: "btn btn-primary", textContent: t("animation_start"),
+            onclick: async () => {
+                await run(preview.value);
+                animations.running = preview.value;
+                stopButton.disabled = false;
+            },
+        });
+        const stopButton = el("button", {
+            class: "btn", textContent: t("animation_stop"), disabled: !animations.running,
+            onclick: async () => {
+                await run("stop");
+                animations.running = null;
+                stopButton.disabled = true;
+            },
+        });
+
+        const delays = [0, 1, 2, 5, 10, 15, 30, 60].map(minutes =>
+            [minutes, minutes ? t("minutes", {n: minutes}) : t("never")]);
+        const idleRows = [formRow("animation_idle_delay", selectField(delays, animations.idle_delay, async value => {
+            animations.idle_delay = Number(value);
+            await saveSetting("animation_delay", value);
+            mountAnimations(container);
+        }), "animation_idle_help")];
+        if (animations.idle_delay > 0) {
+            idleRows.push(
+                formRow("animation_idle", selectField(animations.list.map(item => [item.name, item.label]),
+                    animations.idle, value => {
+                        animations.idle = value;
+                        saveSetting("led_animation", value);
+                    })),
+                formRow("led_brightness", rangeField(animations.idle_brightness, 1, 100, value => {
+                    animations.idle_brightness = Number(value);
+                    saveSetting("led_animation_brightness_percent", value);
+                })));
+        }
+
+        container.replaceChildren(el("div", {class: "form"},
+            el("div", {class: "stack-tight"},
+                el("label", {class: "form-row"}, el("span", {textContent: t("animation_play")}), preview),
+                el("div", {class: "row row-end"}, stopButton, startButton)),
+            formRow("animation_speed", selectField(
+                ["Slow", "Medium", "Fast"].map(speed => [speed, t("speed_" + speed)]), animations.speed, value => {
+                    animations.speed = value;
+                    api("/api/change_animation_speed?speed_value=" + encodeURIComponent(value))
+                        .catch(() => toast(t("error"), true));
+                })),
+            el("hr", {}),
+            ...idleRows));
+    }
+
+    // ------------------------------------------------------- settings page
+
+    const SETTINGS_SECTIONS = ["connection", "lights", "strip", "system"];
+
+    function showSettingsSection(name) {
+        if (!SETTINGS_SECTIONS.includes(name)) name = SETTINGS_SECTIONS[0];
+        remember("plv_settings_section", name);
+        $$("#settings-nav button").forEach(button => button.setAttribute("aria-selected", button.dataset.section === name));
+        $$(".settings-section").forEach(section => { section.hidden = section.dataset.section !== name; });
+
+        if (name === "connection") {
+            mountWifi($("#settings-wifi"));
+            mountPiano($("#settings-piano"));
+        } else if (name === "lights") {
+            mountColor($("#settings-color"), {modes: true});
+            mountLightMode($("#settings-light-mode"));
+            mountAnimations($("#settings-animations"));
+        } else if (name === "strip") {
+            mountAlignment($("#settings-alignment"));
+            mountHardware($("#settings-hardware"));
+        }
     }
 
     // ---------------------------------------------------------------- debug
@@ -1030,7 +1179,16 @@
     const WIZARD_STEPS = [
         {key: "wifi", mount: mountWifi},
         {key: "piano", mount: mountPiano},
-        {key: "leds", mount: body => mountLeds(body, {hardware: false})},
+        {
+            key: "leds",
+            mount: body => {
+                const alignment = el("div", {});
+                const color = el("div", {});
+                body.replaceChildren(el("div", {class: "form"}, alignment, el("hr", {}), color));
+                mountAlignment(alignment);
+                mountColor(color);
+            },
+        },
         {key: "done", mount: body => body.replaceChildren()},
     ];
     const WIZARD_STORAGE = "plv_wizard_step";
@@ -1147,6 +1305,8 @@
             location.reload();
         });
         $("#rerun-wizard").addEventListener("click", () => openWizard(0));
+        $$("#settings-nav button").forEach(button =>
+            button.addEventListener("click", () => showSettingsSection(button.dataset.section)));
 
         $$("#logs-lines option").forEach(option => { option.textContent = t("logs_lines", {n: option.value}); });
         $("#logs-lines").addEventListener("change", loadLogs);

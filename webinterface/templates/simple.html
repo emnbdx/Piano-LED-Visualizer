@@ -120,28 +120,54 @@
 
     <!-- Settings -->
     <section class="view view-pages" id="view-settings" hidden>
-        <div class="cards">
-            <article class="card"><h2 data-i18n="wifi"></h2><div id="settings-wifi"></div></article>
-            <article class="card"><h2 data-i18n="piano"></h2><div id="settings-piano"></div></article>
-            <article class="card card-wide"><h2 data-i18n="led_strip"></h2><div id="settings-leds"></div></article>
-            <article class="card">
-                <h2 data-i18n="system"></h2>
-                <div class="stack">
-                    <button class="btn btn-block" data-system="restart_visualizer" data-i18n="restart_visualizer"></button>
-                    <button class="btn btn-block" data-system="update_rpi" data-confirm="confirm_update" data-i18n="update"></button>
-                    <button class="btn btn-block" data-system="restart_rpi" data-confirm="confirm_restart_pi" data-i18n="restart_pi"></button>
-                    <button class="btn btn-block btn-danger" data-system="turnoff_rpi" data-confirm="confirm_shutdown_pi" data-i18n="shutdown_pi"></button>
+        <div class="settings">
+            <nav class="settings-nav" id="settings-nav" role="tablist">
+                <button role="tab" data-section="connection" data-i18n="section_connection"></button>
+                <button role="tab" data-section="lights" data-i18n="section_lights"></button>
+                <button role="tab" data-section="strip" data-i18n="section_strip"></button>
+                <button role="tab" data-section="system" data-i18n="section_system"></button>
+            </nav>
+
+            <div class="settings-body">
+                <div class="settings-section" data-section="connection" hidden>
+                    <article class="card"><h2 data-i18n="wifi"></h2><div id="settings-wifi"></div></article>
+                    <article class="card"><h2 data-i18n="piano"></h2><div id="settings-piano"></div></article>
                 </div>
-            </article>
-            <article class="card">
-                <h2 data-i18n="interface"></h2>
-                <div class="stack">
-                    <label class="form-row"><span data-i18n="language"></span><select id="language" class="field"></select></label>
-                    <button id="rerun-wizard" class="btn btn-block" data-i18n="rerun_wizard"></button>
-                    <a class="btn btn-block" href="/advanced" data-i18n="advanced_ui"></a>
-                    <p class="help" data-i18n="advanced_ui_help"></p>
+
+                <div class="settings-section" data-section="lights" hidden>
+                    <article class="card"><h2 data-i18n="colors"></h2><div id="settings-color"></div></article>
+                    <article class="card"><h2 data-i18n="light_modes"></h2><div id="settings-light-mode"></div></article>
+                    <article class="card"><h2 data-i18n="animations"></h2><div id="settings-animations"></div></article>
                 </div>
-            </article>
+
+                <div class="settings-section" data-section="strip" hidden>
+                    <article class="card"><h2 data-i18n="alignment"></h2><div id="settings-alignment"></div></article>
+                    <article class="card"><h2 data-i18n="hardware"></h2><div id="settings-hardware"></div></article>
+                </div>
+
+                <div class="settings-section" data-section="system" hidden>
+                    <article class="card">
+                        <h2 data-i18n="system"></h2>
+                        <div class="form">
+                            <button class="btn" data-system="restart_visualizer" data-i18n="restart_visualizer"></button>
+                            <button class="btn" data-system="update_rpi" data-confirm="confirm_update" data-i18n="update"></button>
+                            <button class="btn" data-system="restart_rpi" data-confirm="confirm_restart_pi" data-i18n="restart_pi"></button>
+                            <button class="btn btn-danger" data-system="turnoff_rpi" data-confirm="confirm_shutdown_pi" data-i18n="shutdown_pi"></button>
+                        </div>
+                    </article>
+                    <article class="card">
+                        <h2 data-i18n="interface"></h2>
+                        <div class="form">
+                            <label class="form-row"><span data-i18n="language"></span><select id="language" class="field"></select></label>
+                            <button id="rerun-wizard" class="btn" data-i18n="rerun_wizard"></button>
+                            <div class="stack-tight">
+                                <a class="btn" href="/advanced" data-i18n="advanced_ui"></a>
+                                <p class="help" data-i18n="advanced_ui_help"></p>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </div>
         </div>
     </section>
 
