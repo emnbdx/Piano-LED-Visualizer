@@ -888,7 +888,7 @@
         return fits(name, width - 3) ? name : "";
     }
 
-    const NOTE_GAP = 4;  // pixels left empty at the end of every falling note
+    const NOTE_GAP = 6;  // pixels left empty at the end of every falling note
     const WRONG_KEY = "#ef6b5a";
     const FREE_KEY = "#f2b544";
 

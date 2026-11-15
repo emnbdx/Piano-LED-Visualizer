@@ -388,9 +388,11 @@ def simple_song_notes():
                 continue
             key = (msg.note, msg.channel)
             if msg.type == 'note_on' and msg.velocity > 0:
-                held.setdefault(key, elapsed)
-            elif key in held:
-                start = held.pop(key)
+                # A key can be struck again before its previous note is released: keep every
+                # strike, each one is a note the player has to press
+                held.setdefault(key, []).append(elapsed)
+            elif held.get(key):
+                start = held[key].pop(0)
                 hand = msg.channel if msg.channel in (1, 2) else 0
                 notes.append([msg.note, round(start, 3), round(max(elapsed - start, 0.05), 3), hand])
     except Exception as e:
@@ -398,6 +400,15 @@ def simple_song_notes():
         return jsonify(success=False, error="Unreadable MIDI file"), 422
 
     notes.sort(key=lambda n: n[1])
+    # A note still sounding when the same key is struck again ends there on screen, so
+    # that the two strikes show as two blocks instead of one
+    last_of_key = {}
+    for note in notes:
+        key = (note[0], note[3])
+        earlier = last_of_key.get(key)
+        if earlier is not None and earlier[1] + earlier[2] > note[1]:
+            earlier[2] = round(max(note[1] - earlier[1], 0.02), 3)
+        last_of_key[key] = note
     count = len(message_times)
     # start_point / end_point are percentages of the message list, not of the duration
     percent_times = [round(message_times[min(int(p * count / 100), count - 1)], 3) if count else 0
