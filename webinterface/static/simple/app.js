@@ -905,6 +905,7 @@
     const octaveOf = note => Math.floor(note / 12) - (SOLFEGE ? 2 : 1);
     const NOTE_FONT = "700 10px system-ui, sans-serif";
     const KEY_FONT = "600 9px system-ui, sans-serif";
+    const FINGER_FONT = "800 10px system-ui, sans-serif";
     let nameWidths = null;  // width of each note name in NOTE_FONT, measured once
     let keyLabels = null;   // label of each key, recomputed when the keyboard is laid out
 
@@ -970,10 +971,11 @@
         // Falling notes
         context.font = NOTE_FONT;
         nameWidths = nameWidths || NOTE_NAMES.map(name => context.measureText(name).width);
+        const showFingers = $("#fingers-toggle").checked;
         const playing = gameOn();
         if (playing) sweepMisses(position - HIT_WINDOW * tempoFactor());
         for (let index = 0; index < state.notes.length; index++) {
-            const [note, start, duration, hand] = state.notes[index];
+            const [note, start, duration, hand, finger] = state.notes[index];
             if (start > position + SECONDS_VISIBLE) break;
             const end = start + duration;
             if (end < position) continue;
@@ -1009,9 +1011,28 @@
                 context.roundRect(x, bottom - 3, noteWidth, 3, [0, 0, Math.min(5, noteWidth / 2), Math.min(5, noteWidth / 2)]);
                 context.fill();
             }
-            if (nameWidths[note % 12] <= noteWidth + 3 && noteHeight >= 18) {
+            // Suggested finger, in a disc at the end to press; the note name moves above it
+            let nameY = bottom - 7;
+            if (showFingers && finger && mine && noteHeight >= 14) {
+                const radius = Math.min(8, Math.max(5.5, noteWidth / 2));
+                const centerX = x + noteWidth / 2;
+                const centerY = bottom - radius - 2;
+                context.globalAlpha = result ? 0.45 : 1;
+                context.fillStyle = "#ffffff";
+                context.beginPath();
+                context.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                context.fill();
+                context.fillStyle = "#14161c";
+                context.font = FINGER_FONT;
+                context.textBaseline = "middle";
+                context.fillText(finger, centerX, centerY + 0.5);
+                context.textBaseline = "alphabetic";
+                context.font = NOTE_FONT;
+                nameY = centerY - radius - 4;
+            }
+            if (nameWidths[note % 12] <= noteWidth + 3 && nameY - top >= 12) {
                 context.fillStyle = key.black ? "rgba(255, 255, 255, 0.9)" : "rgba(8, 10, 14, 0.72)";
-                context.fillText(NOTE_NAMES[note % 12], x + noteWidth / 2, bottom - 7);
+                context.fillText(NOTE_NAMES[note % 12], x + noteWidth / 2, nameY);
             }
             if (active && mine && result !== "miss") sounding.set(note, shades);
         }
@@ -1788,6 +1809,8 @@
             learning().loop = event.target.checked ? 1 : 0;
             setSetting("change_learning_loop", String(event.target.checked)).catch(() => toast(t("error"), true));
         });
+        $("#fingers-toggle").addEventListener("change", event =>
+            remember("plv_fingers", event.target.checked ? "1" : "0"));
         $("#sheet-toggle").addEventListener("change", event => {
             remember("plv_sheet", event.target.checked ? "1" : "0");
             if (event.target.checked) loadSheet();
@@ -1849,6 +1872,7 @@
         translatePage();
         bindEvents();
         $("#sheet-toggle").checked = recall("plv_sheet") === "1";
+        $("#fingers-toggle").checked = recall("plv_fingers") !== "0";  // shown unless switched off
         $("#view-practice").classList.toggle("library-hidden", recall("plv_library_hidden") === "1");
         updatePlayButton();
 

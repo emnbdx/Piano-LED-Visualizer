@@ -342,12 +342,20 @@ def simple_song_folder():
     return jsonify(success=True, folder=folder)
 
 
+_notes_cache = {}  # the last song asked for: {"key": (path, mtime), "payload": ...}
+
+
 @webinterface.route('/api/simple/song_notes', methods=['GET'])
 def simple_song_notes():
     """Notes of a song on the same time axis the learning engine reports over the websocket."""
     path = _song_path(request.args.get('song'))
     if not path:
         return jsonify(success=False, error="Song not found"), 404
+
+    # Working out the fingering of a long piece takes a few seconds on a small Pi
+    cache_key = (path, os.path.getmtime(path))
+    if _notes_cache.get("key") == cache_key:
+        return jsonify(_notes_cache["payload"])
 
     # lib.learnmidi imports this package, so it cannot be imported at module level
     from lib.learnmidi import assign_hands
@@ -409,13 +417,24 @@ def simple_song_notes():
         if earlier is not None and earlier[1] + earlier[2] > note[1]:
             earlier[2] = round(max(note[1] - earlier[1], 0.02), 3)
         last_of_key[key] = note
+    # Suggested finger for each note, per hand (0 when the hand is unknown)
+    from lib.fingering import suggest_fingers
+    for note in notes:
+        note.append(0)
+    for hand in (1, 2):
+        mine = [note for note in notes if note[3] == hand]
+        for note, finger in zip(mine, suggest_fingers([(n[1], n[0]) for n in mine], left_hand=hand == 2)):
+            note[4] = finger
+
     count = len(message_times)
     # start_point / end_point are percentages of the message list, not of the duration
     percent_times = [round(message_times[min(int(p * count / 100), count - 1)], 3) if count else 0
                      for p in range(101)]
 
-    return jsonify(success=True, notes=notes, duration=round(elapsed, 3),
+    payload = dict(success=True, notes=notes, duration=round(elapsed, 3),
                    percent_times=percent_times, bars=bars)
+    _notes_cache.update(key=cache_key, payload=payload)
+    return jsonify(payload)
 
 
 @webinterface.route('/api/simple/sheet', methods=['GET'])
