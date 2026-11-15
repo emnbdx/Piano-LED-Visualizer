@@ -104,7 +104,7 @@
     const learning = () => (state.server ? state.server.learning : {});
 
     // Screen colours keep the hue of the LED colours, at a brightness that reads on the dark roll.
-    // Each hand gets three shades: falling note, note on a black key, note being played.
+    // Each hand gets a few shades: falling note, note on a black key, note being played...
     function screenColors(hex, fallbackHue) {
         const value = parseInt(hex.slice(1), 16);
         const [r, g, b] = [value >> 16, (value >> 8) & 255, value & 255].map(channel => channel / 255);
@@ -122,6 +122,7 @@
             dark: `hsl(${hue}, 75%, 46%)`,
             light: `hsl(${hue}, 95%, 76%)`,
             glow: `hsla(${hue}, 95%, 65%, 0.5)`,
+            ink: `hsl(${hue}, 75%, 32%)`,  // readable on a white key
         };
     }
 
@@ -905,7 +906,9 @@
     const octaveOf = note => Math.floor(note / 12) - (SOLFEGE ? 2 : 1);
     const NOTE_FONT = "700 10px system-ui, sans-serif";
     const KEY_FONT = "600 9px system-ui, sans-serif";
-    const FINGER_FONT = "800 10px system-ui, sans-serif";
+    const FINGER_FONT = "700 14px system-ui, sans-serif";
+    const FINGER_FONT_SMALL = "700 10px system-ui, sans-serif";
+    const FINGER_LOOKAHEAD = 1.5;  // seconds before a note that its finger appears on the key
     let nameWidths = null;  // width of each note name in NOTE_FONT, measured once
     let keyLabels = null;   // label of each key, recomputed when the keyboard is laid out
 
@@ -951,6 +954,7 @@
         const position = state.position;
         const hands = learning().hands;           // 0 both, 1 right, 2 left
         const sounding = new Map();               // note -> shades of the note crossing the line
+        const fingerHints = new Map();            // note -> finger of the next note due on that key
 
         context.clearRect(0, 0, width, height);
         context.textAlign = "center";
@@ -1011,28 +1015,14 @@
                 context.roundRect(x, bottom - 3, noteWidth, 3, [0, 0, Math.min(5, noteWidth / 2), Math.min(5, noteWidth / 2)]);
                 context.fill();
             }
-            // Suggested finger, in a disc at the end to press; the note name moves above it
-            let nameY = bottom - 7;
-            if (showFingers && finger && mine && noteHeight >= 14) {
-                const radius = Math.min(8, Math.max(5.5, noteWidth / 2));
-                const centerX = x + noteWidth / 2;
-                const centerY = bottom - radius - 2;
-                context.globalAlpha = result ? 0.45 : 1;
-                context.fillStyle = "#ffffff";
-                context.beginPath();
-                context.arc(centerX, centerY, radius, 0, Math.PI * 2);
-                context.fill();
-                context.fillStyle = "#14161c";
-                context.font = FINGER_FONT;
-                context.textBaseline = "middle";
-                context.fillText(finger, centerX, centerY + 0.5);
-                context.textBaseline = "alphabetic";
-                context.font = NOTE_FONT;
-                nameY = centerY - radius - 4;
-            }
-            if (nameWidths[note % 12] <= noteWidth + 3 && nameY - top >= 12) {
+            if (nameWidths[note % 12] <= noteWidth + 3 && noteHeight >= 18) {
                 context.fillStyle = key.black ? "rgba(255, 255, 255, 0.9)" : "rgba(8, 10, 14, 0.72)";
-                context.fillText(NOTE_NAMES[note % 12], x + noteWidth / 2, nameY);
+                context.fillText(NOTE_NAMES[note % 12], x + noteWidth / 2, bottom - 7);
+            }
+            // The finger to use is written on the key itself, a little ahead of the note
+            if (showFingers && finger && mine && result !== "miss" && !fingerHints.has(note)
+                && start - position <= FINGER_LOOKAHEAD * tempoFactor()) {
+                fingerHints.set(note, {finger, shades, ahead: Math.max(0, start - position) / tempoFactor()});
             }
             if (active && mine && result !== "miss") sounding.set(note, shades);
         }
@@ -1084,6 +1074,20 @@
             context.roundRect(key.x, lane, key.width, blackHeight, [0, 0, 3, 3]);
             context.fill();
         });
+        // Fingers: a plain digit on the key, fading in as the note comes down
+        const whiteArea = keyboard - blackHeight;
+        for (const [note, hint] of fingerHints) {
+            const key = keys[note];
+            const lit = sounding.has(note) || state.pressed.has(note);
+            context.globalAlpha = 0.35 + 0.65 * (1 - hint.ahead / FINGER_LOOKAHEAD);
+            context.font = key.black ? FINGER_FONT_SMALL : FINGER_FONT;
+            if (key.black) context.fillStyle = lit ? "#14161c" : "#ffffff";
+            else context.fillStyle = lit ? "#14161c" : hint.shades.ink;
+            const y = key.black ? lane + blackHeight - 8 : lane + blackHeight + whiteArea * 0.42;
+            context.fillText(hint.finger, key.x + key.width / 2, y);
+        }
+        context.globalAlpha = 1;
+
         // Shadow under the fallboard gives the keys some depth
         const shade = context.createLinearGradient(0, lane, 0, lane + 10);
         shade.addColorStop(0, "rgba(0, 0, 0, 0.35)");
