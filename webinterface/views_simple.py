@@ -382,7 +382,7 @@ def simple_sheet():
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UPDATE_CHECK_INTERVAL = 6 * 3600  # seconds between two looks at the remote
+UPDATE_CHECK_INTERVAL = 6 * 3600  # seconds between two background looks at the remote
 _update_cache = {"time": 0, "result": None}
 
 
@@ -419,10 +419,25 @@ def check_for_update(root=PROJECT_ROOT):
     return result
 
 
+def _refresh_update_cache():
+    _update_cache["result"] = check_for_update()
+    _update_cache["time"] = time.time()
+
+
+def _update_check_loop():
+    """Look for updates in the background, so one is known even if no page was opened."""
+    time.sleep(60)  # let the network come up after boot
+    while True:
+        _refresh_update_cache()
+        time.sleep(UPDATE_CHECK_INTERVAL)
+
+
+threading.Thread(target=_update_check_loop, daemon=True).start()
+
+
 @webinterface.route('/api/simple/update_check', methods=['GET'])
 def simple_update_check():
-    fresh = time.time() - _update_cache["time"] < UPDATE_CHECK_INTERVAL
-    if not fresh or request.args.get('force') or not _update_cache["result"]:
-        _update_cache["result"] = check_for_update()
-        _update_cache["time"] = time.time()
+    # The background loop keeps the answer fresh; "force" looks at the remote right now
+    if request.args.get('force') or not _update_cache["result"]:
+        _refresh_update_cache()
     return jsonify(_update_cache["result"])

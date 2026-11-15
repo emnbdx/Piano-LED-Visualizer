@@ -1759,6 +1759,8 @@
         if (state.server && !state.server.setup_done) openWizard(Number(recall(WIZARD_STORAGE)) || 0);
 
         checkForUpdate();
+        // The Pi looks for updates on its own; ask it now and then so an open page hears about it
+        setInterval(checkForUpdate, 30 * 60 * 1000);
         setInterval(() => { if (!dragging) refreshState(); }, 5000);
     }
 
