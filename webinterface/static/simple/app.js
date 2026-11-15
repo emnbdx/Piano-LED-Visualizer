@@ -90,6 +90,7 @@
         waiting: false,      // the engine is waiting for the player's notes
         userStopped: false,
         sessionOpen: false,  // a session was started or followed from this page
+        countdown: null,     // {endsAt, launched} while counting the player in
         passScore: 0,        // score of the current pass in "Wait for me" mode
         position: 0,         // song time currently at the keyboard line
         target: 0,           // song time the engine is heading to
@@ -367,7 +368,8 @@
 
     function updatePlayButton() {
         const button = $("#play-btn");
-        button.textContent = state.song && !state.songReady ? t("loading_song") : t(state.running ? "stop" : "start");
+        const busy = state.running || state.countdown;
+        button.textContent = state.song && !state.songReady ? t("loading_song") : t(busy ? "stop" : "start");
         button.disabled = !state.songReady;
         $("#scorebox").hidden = !state.running || learning().practice === 2;
     }
@@ -465,23 +467,49 @@
         }
     }
 
-    async function startSession() {
-        if (!state.songReady) return;
+    const COUNTDOWN_SECONDS = 3;
+    // The engine itself waits one second between "start" and the first note
+    const ENGINE_LEAD_SECONDS = 1;
+
+    async function launchSession() {
+        try {
+            await setSetting("start_learning_song", "0");
+            setRunning(true);
+        } catch (e) {
+            state.countdown = null;
+            updatePlayButton();
+            toast(t("error"), true);
+        }
+    }
+
+    function startSession() {
+        if (!state.songReady || state.running || state.countdown) return;
         state.userStopped = false;
         state.waiting = false;
         state.position = state.target = passageStart();
         state.passScore = 0;
         resetGame();
-        try {
-            await setSetting("start_learning_song", "0");
-            setRunning(true);
-        } catch (e) {
-            toast(t("error"), true);
+        if (learning().practice !== 1) {
+            launchSession();
+            return;
         }
+        // In tempo mode nothing waits for the player: count them in, with the first notes
+        // already falling. drawFrame sends the start so that the engine's own second of
+        // lead lines up with the last count.
+        state.countdown = {endsAt: performance.now() + COUNTDOWN_SECONDS * 1000, launched: false};
+        updatePlayButton();
     }
 
     async function stopSession() {
-        if (!state.running) return;
+        const counting = state.countdown;
+        state.countdown = null;
+        if (counting && !counting.launched) {
+            // still counting in: the engine was never started
+            state.position = state.target = passageStart();
+            updatePlayButton();
+            return;
+        }
+        if (!state.running && !counting) return;
         state.userStopped = true;
         setRunning(false);
         await setSetting("stop_learning_song", "0").catch(() => {});
@@ -898,7 +926,21 @@
         lastFrame = now;
         if ($("#view-practice").hidden || !rollSize.width) return;
 
-        if (state.running && !state.waiting && state.position < state.target) {
+        let counting = 0;  // seconds left before the first note, while counting in
+        if (state.countdown) {
+            counting = (state.countdown.endsAt - now) / 1000;
+            if (counting <= ENGINE_LEAD_SECONDS && !state.countdown.launched) {
+                state.countdown.launched = true;
+                launchSession();
+            }
+            if (counting <= 0) {
+                state.countdown = null;
+                counting = 0;
+            } else {
+                // run-up: the song scrolls in so the first note arrives on the last count
+                state.position = passageStart() - counting * tempoFactor();
+            }
+        } else if (state.running && !state.waiting && state.position < state.target) {
             state.position = Math.min(state.target, state.position + elapsed * (learning().tempo || 100) / 100);
         }
 
@@ -1032,12 +1074,25 @@
         context.fillRect(0, lane - 2, width, 2);
 
         if (playing) drawGame(now, width, lane);
+        if (counting > 0) drawCountdown(counting, width, lane);
 
         if (state.duration) {
-            $("#timeline-progress").style.left = Math.min(100, position / state.duration * 100) + "%";
+            $("#timeline-progress").style.left = Math.min(100, Math.max(0, position) / state.duration * 100) + "%";
             $("#timeline-time").textContent = clock(position) + " / " + clock(state.duration);
             followSheet(position / state.duration);
         }
+    }
+
+    function drawCountdown(remaining, width, lane) {
+        const count = Math.ceil(remaining);
+        const beat = count - remaining;  // 0 when the number appears, 1 when it leaves
+        context.globalAlpha = 1 - beat * beat * 0.75;
+        context.fillStyle = "#ffffff";
+        context.font = `800 ${Math.round(120 - beat * 30)}px system-ui, sans-serif`;
+        context.textBaseline = "middle";
+        context.fillText(count, width / 2, lane * 0.42);
+        context.textBaseline = "alphabetic";
+        context.globalAlpha = 1;
     }
 
     const POPUP_LIFE = 750;  // milliseconds
@@ -1707,7 +1762,8 @@
         $("#record-save").addEventListener("click", () => recorderAction("save_recording", "record_saved"));
         $("#record-cancel").addEventListener("click", () => recorderAction("cancel_recording"));
 
-        $("#play-btn").addEventListener("click", () => (state.running ? stopSession() : startSession()));
+        $("#play-btn").addEventListener("click", () =>
+            (state.running || state.countdown ? stopSession() : startSession()));
         $$("#mode-seg button").forEach(button => button.addEventListener("click", async () => {
             learning().practice = Number(button.dataset.value);
             setSegment("mode-seg", button.dataset.value);
