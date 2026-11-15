@@ -473,6 +473,18 @@ dialog[open] { display: flex; flex-direction: column; gap: 14px; }
     z-index: 50;
 }
 .toast.bad { background: var(--danger); color: #fff; }
+.toast-action {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    bottom: 72px;
+    padding: 8px 8px 8px 18px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.toast-action .link { padding: 0 10px 0 0; text-decoration: none; white-space: nowrap; }
 
 /* ---------- Small screens ---------- */
 

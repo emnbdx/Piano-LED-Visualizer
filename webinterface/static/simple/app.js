@@ -1306,6 +1306,8 @@
         } else if (name === "strip") {
             mountAlignment($("#settings-alignment"));
             mountHardware($("#settings-hardware"));
+        } else if (name === "system") {
+            checkForUpdate(true);
         }
     }
 
@@ -1354,6 +1356,36 @@
             return;
         }
         if (pinned) box.scrollTop = box.scrollHeight;
+    }
+
+    // --------------------------------------------------------------- update
+
+    const UPDATE_DISMISSED = "plv_update_dismissed";
+
+    async function runUpdate() {
+        if (!await askConfirm(t("confirm_update"))) return;
+        $("#update-toast").hidden = true;
+        setSetting("update_rpi", "0").catch(() => {});
+        toast(t("action_sent"));
+    }
+
+    // The server looks at the remote a few times a day at most; force asks it to look now
+    async function checkForUpdate(force) {
+        let update;
+        try {
+            update = await api("/api/simple/update_check" + (force ? "?force=1" : ""));
+        } catch (e) {
+            return;
+        }
+        $("#update-status").textContent = t(!update.checked ? "update_status_unknown"
+            : (update.available ? "update_status_available" : "update_status_current"));
+        $("#update-button").classList.toggle("btn-primary", update.available);
+        // "Later" silences the toast for that version only
+        $("#update-toast").hidden = !update.available || recall(UPDATE_DISMISSED) === update.version;
+        $("#update-later").onclick = () => {
+            remember(UPDATE_DISMISSED, update.version);
+            $("#update-toast").hidden = true;
+        };
     }
 
     // --------------------------------------------------------------- wizard
@@ -1475,7 +1507,7 @@
         });
 
         $$("[data-system]").forEach(button => button.addEventListener("click", async () => {
-            if (!await askConfirm(t(button.dataset.confirm || "confirm_restart_visualizer"))) return;
+            if (!await askConfirm(t(button.dataset.confirm))) return;
             setSetting(button.dataset.system, "0").catch(() => {});
             toast(t("action_sent"));
         }));
@@ -1488,6 +1520,8 @@
             location.reload();
         });
         $("#rerun-wizard").addEventListener("click", () => openWizard(0));
+        $("#update-button").addEventListener("click", runUpdate);
+        $("#update-now").addEventListener("click", runUpdate);
         $$("#settings-nav button").forEach(button =>
             button.addEventListener("click", () => showSettingsSection(button.dataset.section)));
 
@@ -1534,6 +1568,7 @@
 
         if (state.server && !state.server.setup_done) openWizard(Number(recall(WIZARD_STORAGE)) || 0);
 
+        checkForUpdate();
         setInterval(() => { if (!dragging) refreshState(); }, 5000);
     }
 

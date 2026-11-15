@@ -150,8 +150,10 @@
                     <article class="card">
                         <h2 data-i18n="system"></h2>
                         <div class="form">
-                            <button class="btn" data-system="restart_visualizer" data-i18n="restart_visualizer"></button>
-                            <button class="btn" data-system="update_rpi" data-confirm="confirm_update" data-i18n="update"></button>
+                            <div class="stack-tight">
+                                <button class="btn" id="update-button" data-i18n="update"></button>
+                                <p class="help" id="update-status"></p>
+                            </div>
                             <button class="btn" data-system="restart_rpi" data-confirm="confirm_restart_pi" data-i18n="restart_pi"></button>
                             <button class="btn btn-danger" data-system="turnoff_rpi" data-confirm="confirm_shutdown_pi" data-i18n="shutdown_pi"></button>
                         </div>
@@ -251,6 +253,12 @@
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
+
+<div class="toast toast-action" id="update-toast" role="status" hidden>
+    <span data-i18n="update_available"></span>
+    <button class="btn btn-small btn-primary" id="update-now" data-i18n="update_now"></button>
+    <button class="link" id="update-later" data-i18n="later"></button>
+</div>
 
 <script src="{{ url_for('static', filename='simple/i18n.js') }}"></script>
 <script src="{{ url_for('static', filename='simple/app.js') }}"></script>

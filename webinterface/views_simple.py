@@ -6,6 +6,7 @@ only adds what the simple interface needs in a JSON-friendly shape.
 import ast
 import json
 import os
+import subprocess
 import threading
 import time
 
@@ -378,3 +379,44 @@ def simple_sheet():
                 return jsonify(success=True, format='abc' if ext == '.abc' else 'xml', data=handle.read())
 
     return jsonify(success=False, error="No sheet music available"), 404
+
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UPDATE_CHECK_INTERVAL = 6 * 3600  # seconds between two looks at the remote
+_update_cache = {"time": 0, "result": None}
+
+
+def _git(root, *args, timeout=30):
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=timeout, check=False)
+
+
+def check_for_update(root=PROJECT_ROOT):
+    """Compare this install with the branch it follows (the same one the update pulls)."""
+    result = {"available": False, "checked": False, "behind": 0, "version": ""}
+    try:
+        tracked = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+        upstream = tracked.stdout.strip() if tracked.returncode == 0 else "origin/master"
+        remote, branch = upstream.split("/", 1)
+
+        # no network or no remote: say so rather than claim the install is up to date
+        if _git(root, "fetch", "--quiet", remote, branch).returncode != 0:
+            return result
+        behind = _git(root, "rev-list", "--count", f"HEAD..{upstream}")
+        if behind.returncode != 0:
+            return result
+        result["checked"] = True
+        result["behind"] = int(behind.stdout.strip() or 0)
+        result["available"] = result["behind"] > 0
+        result["version"] = _git(root, "rev-parse", "--short", upstream).stdout.strip()
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        logger.warning(f"Update check failed: {e}")
+    return result
+
+
+@webinterface.route('/api/simple/update_check', methods=['GET'])
+def simple_update_check():
+    fresh = time.time() - _update_cache["time"] < UPDATE_CHECK_INTERVAL
+    if not fresh or request.args.get('force') or not _update_cache["result"]:
+        _update_cache["result"] = check_for_update()
+        _update_cache["time"] = time.time()
+    return jsonify(_update_cache["result"])
