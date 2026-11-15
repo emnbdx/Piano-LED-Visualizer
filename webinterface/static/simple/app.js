@@ -703,6 +703,7 @@
         return fits(name, width - 3) ? name : "";
     }
 
+    const NOTE_GAP = 4;  // pixels left empty at the end of every falling note
     const WRONG_KEY = "#ef6b5a";
     const FREE_KEY = "#f2b544";
 
@@ -755,9 +756,12 @@
             const inset = key.black ? 0 : Math.min(3, key.width * 0.1);
             const x = key.x + inset;
             const noteWidth = key.width - inset * 2;
-            const top = Math.max(-8, lane - (end - position) * scale);
-            const bottom = Math.min(lane, lane - (start - position) * scale);
-            const noteHeight = Math.max(4, bottom - top);
+            // Each block stops a little short of its real end, so the same note played
+            // twice in a row reads as two blocks instead of one long one
+            const startY = lane - (start - position) * scale;
+            const bottom = Math.min(lane, startY);
+            const top = Math.max(-8, Math.min(lane - (end - position) * scale + NOTE_GAP, bottom - 4));
+            const noteHeight = bottom - top;
 
             context.globalAlpha = mine ? 1 : 0.28;
             context.fillStyle = active && mine ? shades.light : (key.black ? shades.dark : shades.base);
@@ -765,9 +769,16 @@
             context.roundRect(x, top, noteWidth, noteHeight, Math.min(5, noteWidth / 2));
             context.fill();
 
-            if (nameWidths[note % 12] <= noteWidth + 3 && noteHeight >= 16) {
+            // A brighter edge marks the moment to press
+            if (!active && noteHeight >= 10) {
+                context.fillStyle = mine ? shades.light : shades.base;
+                context.beginPath();
+                context.roundRect(x, bottom - 3, noteWidth, 3, [0, 0, Math.min(5, noteWidth / 2), Math.min(5, noteWidth / 2)]);
+                context.fill();
+            }
+            if (nameWidths[note % 12] <= noteWidth + 3 && noteHeight >= 18) {
                 context.fillStyle = key.black ? "rgba(255, 255, 255, 0.9)" : "rgba(8, 10, 14, 0.72)";
-                context.fillText(NOTE_NAMES[note % 12], x + noteWidth / 2, top + noteHeight - 5);
+                context.fillText(NOTE_NAMES[note % 12], x + noteWidth / 2, bottom - 7);
             }
             if (active && mine) sounding.set(note, shades);
         }
@@ -1187,6 +1198,9 @@
                 COLOR_MODES.map(mode => [mode, t("color_mode_" + mode)]), lights.color_mode, async value => {
                     lights.color_mode = value;
                     await saveSetting("color_mode", value);
+                    // The page re-reads the Pi every few seconds: fetch the saved value before redrawing,
+                    // otherwise the card is rebuilt from a state read before this change
+                    await refreshState();
                     mountColor(container, options);
                 }), "color_mode_help_" + lights.color_mode));
         }
@@ -1213,6 +1227,7 @@
             LIGHT_MODES.map(mode => [mode, t("light_mode_" + mode)]), lights.mode, async value => {
                 lights.mode = value;
                 await saveSetting("light_mode", value);
+                await refreshState();
                 mountLightMode(container);
             }), "light_mode_help_" + lights.mode)];
 
@@ -1257,6 +1272,7 @@
         const idleRows = [formRow("animation_idle_delay", selectField(delays, animations.idle_delay, async value => {
             animations.idle_delay = Number(value);
             await saveSetting("animation_delay", value);
+            await refreshState();
             mountAnimations(container);
         }), "animation_idle_help")];
         if (animations.idle_delay > 0) {
